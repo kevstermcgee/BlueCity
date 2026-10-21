@@ -85,7 +85,7 @@ impl draw::Game for BlueCity {
         false
     }
     fn menu_status(&self) -> String {
-        "Build a city that people love. Click tools, then the map.".into()
+        "Build a city. Watch it grow.".into()
     }
     fn draw<'a>(&'a self, s: &mut Scene<'a>) {
         let st = &self.state;
