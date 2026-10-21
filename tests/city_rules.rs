@@ -1,4 +1,5 @@
-use bluecity::city::{City, Disaster, Kind, Terrain, SIZE};
+use bluecity::city::{City, Disaster, Kind, MapStyle, Terrain, SIZE};
+use std::collections::VecDeque;
 
 fn plain() -> City {
     let mut city = City::new(71, false);
@@ -392,4 +393,170 @@ fn rail_crossings_preserve_both_street_and_track_connections() {
     city.validate().unwrap();
     city.bulldoze(16, 10).unwrap();
     assert!(!city.tile(16, 10).unwrap().rail_crossing);
+}
+
+fn major_terrain(terrain: Terrain) -> u8 {
+    match terrain {
+        Terrain::Grass | Terrain::Forest => 0,
+        Terrain::Water => 1,
+        Terrain::Hill => 2,
+    }
+}
+
+fn major_terrain_difference(a: &City, b: &City) -> usize {
+    a.tiles
+        .iter()
+        .zip(&b.tiles)
+        .filter(|(a, b)| major_terrain(a.terrain) != major_terrain(b.terrain))
+        .count()
+}
+
+fn largest_landmass(city: &City) -> usize {
+    let mut visited = vec![false; SIZE * SIZE];
+    let mut largest = 0;
+    for first in 0..visited.len() {
+        if visited[first] || city.tiles[first].terrain == Terrain::Water {
+            continue;
+        }
+        let mut queue = VecDeque::from([first]);
+        visited[first] = true;
+        let mut size = 0;
+        while let Some(i) = queue.pop_front() {
+            size += 1;
+            let (x, y) = ((i % SIZE) as i32, (i / SIZE) as i32);
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                if let Some(j) = City::index(nx, ny) {
+                    if !visited[j] && city.tiles[j].terrain != Terrain::Water {
+                        visited[j] = true;
+                        queue.push_back(j);
+                    }
+                }
+            }
+        }
+        largest = largest.max(size);
+    }
+    largest
+}
+
+#[test]
+fn generated_regions_reproduce_the_entire_city_and_serialize_their_styles() {
+    assert_eq!(MapStyle::default(), MapStyle::River);
+    assert_eq!(
+        MapStyle::ALL.map(MapStyle::label),
+        ["River", "Coast", "Islands", "Highlands"]
+    );
+    for style in MapStyle::ALL {
+        let encoded = serde_json::to_string(&style).unwrap();
+        assert_eq!(serde_json::from_str::<MapStyle>(&encoded).unwrap(), style);
+        for seed in [0, 7, 1984, 1 << 32, 1 << 63, u64::MAX] {
+            let city = City::generated(seed, style);
+            assert_eq!(city, City::generated(seed, style));
+            assert_eq!(city.seed, seed, "generation must not advance disaster RNG");
+            assert_eq!(city.money, 60000);
+            assert_eq!((city.month, city.population, city.jobs), (0, 0, 0));
+            assert_eq!(city.history.len(), 1);
+            assert_eq!(city.history[0].money, city.money);
+            assert_eq!(city.history[0].population, city.population);
+            assert_eq!(city.history[0].income, city.income);
+            assert_eq!(city.history[0].expenses, city.expenses);
+            assert!(city.tiles.iter().all(|t| t.kind == Kind::Empty));
+            city.validate().unwrap();
+            let encoded = serde_json::to_vec(&city).unwrap();
+            let restored: City = serde_json::from_slice(&encoded).unwrap();
+            assert_eq!(restored, city);
+            let mut refreshed = restored;
+            refreshed.refresh();
+            assert_eq!(refreshed, city);
+        }
+    }
+}
+
+#[test]
+fn generation_seeds_change_water_and_topography_rather_than_only_tree_scatter() {
+    for style in MapStyle::ALL {
+        for (a, b) in [(7, 8), (101, 9182), (0, u64::MAX), (7, 7 + (1 << 32))] {
+            let a = City::generated(a, style);
+            let b = City::generated(b, style);
+            assert!(
+                major_terrain_difference(&a, &b) > SIZE * SIZE / 12,
+                "{style:?} seeds should materially change water or hills"
+            );
+        }
+    }
+}
+
+#[test]
+fn map_styles_provide_distinct_region_shapes_for_the_same_seed() {
+    for seed in [7, 1984, u64::MAX] {
+        let cities = MapStyle::ALL.map(|style| City::generated(seed, style));
+        for a in 0..cities.len() {
+            for b in (a + 1)..cities.len() {
+                assert!(
+                    major_terrain_difference(&cities[a], &cities[b]) > SIZE * SIZE / 12,
+                    "{:?} and {:?} need distinct geography for seed {seed}",
+                    MapStyle::ALL[a],
+                    MapStyle::ALL[b]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn generated_regions_leave_room_for_towns_regional_access_and_water_pumps() {
+    for style in MapStyle::ALL {
+        for seed in [0, 1, 7, 1984, 1 << 63, u64::MAX] {
+            let mut city = City::generated(seed, style);
+            let count = |terrain| city.tiles.iter().filter(|t| t.terrain == terrain).count();
+            assert!(count(Terrain::Water) >= 40, "{style:?} seed {seed}: water");
+            assert!(count(Terrain::Grass) >= 192, "{style:?} seed {seed}: grass");
+            assert!(
+                largest_landmass(&city) >= 288,
+                "{style:?} seed {seed}: landmass"
+            );
+            for y in 21..=27 {
+                for x in 21..=27 {
+                    assert_eq!(city.tile(x, y).unwrap().terrain, Terrain::Grass);
+                }
+            }
+            let edge_land: Vec<_> = city
+                .tiles
+                .iter()
+                .enumerate()
+                .filter(|(i, t)| {
+                    t.terrain != Terrain::Water
+                        && (i % SIZE == 0
+                            || i % SIZE == SIZE - 1
+                            || i / SIZE == 0
+                            || i / SIZE == SIZE - 1)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            assert!(edge_land.len() >= 7, "{style:?} seed {seed}: edge access");
+            let i = edge_land[0];
+            city.place((i % SIZE) as i32, (i / SIZE) as i32, Kind::Road)
+                .unwrap();
+            assert!(city.tiles[i].connected);
+            let shore = city
+                .tiles
+                .iter()
+                .enumerate()
+                .find(|(i, t)| {
+                    let (x, y) = ((i % SIZE) as i32, (i / SIZE) as i32);
+                    t.terrain != Terrain::Water
+                        && t.kind == Kind::Empty
+                        && [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                            .into_iter()
+                            .any(|(x, y)| {
+                                city.tile(x, y).is_some_and(|t| t.terrain == Terrain::Water)
+                            })
+                })
+                .map(|(i, _)| i)
+                .expect("a generated region needs usable shoreline");
+            city.place((shore % SIZE) as i32, (shore / SIZE) as i32, Kind::Pump)
+                .unwrap();
+            assert_eq!(city.tiles[shore].kind, Kind::Pump);
+            city.validate().unwrap();
+        }
+    }
 }

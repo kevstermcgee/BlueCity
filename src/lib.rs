@@ -1,8 +1,9 @@
 //! BlueCity: fixed-step city rules and a read-only portable presentation.
 pub mod city;
+pub mod layout;
 #[cfg(feature = "client")]
 mod render;
-use city::{City, Disaster, Kind, Terrain, SIZE};
+use city::{City, Disaster, Kind, MapStyle, Terrain, SIZE};
 use serde::{Deserialize, Serialize};
 use vesper3d::two_d::*;
 
@@ -96,6 +97,13 @@ pub const OVERLAYS: [&str; 9] = [
     "Services",
 ];
 
+fn default_draft_seed() -> String {
+    "7".into()
+}
+fn default_seed_replace() -> bool {
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct State {
     pub city: City,
@@ -115,6 +123,20 @@ pub struct State {
     pub notice: String,
     pub notice_ticks: u32,
     pub confirm_new: bool,
+    #[serde(default)]
+    pub panel_open: bool,
+    #[serde(default)]
+    pub palette_open: bool,
+    #[serde(default = "default_draft_seed")]
+    pub draft_seed: String,
+    #[serde(default)]
+    pub map_style: MapStyle,
+    #[serde(default = "default_seed_replace")]
+    pub seed_replace: bool,
+    #[serde(default)]
+    pub world_seed: Option<u64>,
+    #[serde(default)]
+    pub world_style: Option<MapStyle>,
 }
 pub struct BlueCity {
     pub state: State,
@@ -133,10 +155,10 @@ impl BlueCity {
         };
         let dx = x - self.state.cam_x;
         let dy = y - self.state.cam_y;
-        Point::new(296 + (dx - dy) * w, 217 + (dx + dy) * h)
+        Point::new(400 + (dx - dy) * w, 225 + (dx + dy) * h)
     }
     pub fn pick(&self, p: Point) -> Option<[i32; 2]> {
-        if !Rect::new(0, 64, 592, 306).contains(p) {
+        if !Rect::new(0, 0, 800, 450).contains(p) || layout::blocked_map(&self.state, p) {
             return None;
         }
         let (w, h) = match self.state.zoom {
@@ -144,8 +166,8 @@ impl BlueCity {
             2 => (12., 6.),
             _ => (18., 9.),
         };
-        let a = (p.x - 296) as f32 / w;
-        let b = (p.y - 217) as f32 / h;
+        let a = (p.x - 400) as f32 / w;
+        let b = (p.y - 225) as f32 / h;
         let x = ((a + b) / 2. + 0.5).floor() as i32 + self.state.cam_x;
         let y = ((b - a) / 2. + 0.5).floor() as i32 + self.state.cam_y;
         if x >= 0 && y >= 0 && x < SIZE as i32 && y < SIZE as i32 {
@@ -257,140 +279,155 @@ impl BlueCity {
         }
     }
     fn click(&mut self, p: Point) {
-        if p.y < 64 {
-            if (38..62).contains(&p.y) {
-                if (8..136).contains(&p.x) {
-                    self.state.speed = ((p.x - 8) / 32) as u8;
-                } else if (144..170).contains(&p.x) {
-                    self.state.zoom = (self.state.zoom - 1).max(1);
-                } else if (174..200).contains(&p.x) {
-                    self.state.zoom = (self.state.zoom + 1).min(3);
-                } else if (208..355).contains(&p.x) {
-                    self.state.overlay = (self.state.overlay + 1) % 9;
-                } else if (362..430).contains(&p.x) {
-                    self.state.anchor = None;
-                    self.state.tool = Tool::Inspect;
-                } else if (438..506).contains(&p.x) {
+        use layout::Action;
+        if let Some(action) = layout::hit(&self.state, p) {
+            match action {
+                Action::Speed(speed) => self.state.speed = speed,
+                Action::Zoom(delta) => self.state.zoom = (self.state.zoom + delta).clamp(1, 3),
+                Action::Center => {
                     self.state.cam_x = 24;
                     self.state.cam_y = 24;
-                } else if (514..638).contains(&p.x) {
-                    match (p.x - 514) / 31 {
-                        0 => self.state.cam_x = (self.state.cam_x - 3).max(0),
-                        1 => self.state.cam_x = (self.state.cam_x + 3).min(47),
-                        2 => self.state.cam_y = (self.state.cam_y - 3).max(0),
-                        _ => self.state.cam_y = (self.state.cam_y + 3).min(47),
-                    }
-                } else if p.x >= 694 {
-                    self.state.tab = 3;
                 }
-            }
-            return;
-        }
-        if p.x < 592 && p.y >= 374 {
-            if p.y < 395 {
-                self.state.category = ((p.x / 118).min(4)) as u8;
-                self.state.anchor = None;
-            } else if p.y < 436 {
-                let ts = tools(self.state.category);
-                let idx = p.x as usize / (592 / ts.len());
-                if let Some(t) = ts.get(idx) {
-                    self.state.tool = *t;
-                    self.state.anchor = None;
-                    self.message(format!("{} selected. ${} per tile.", t.label(), t.cost()));
-                }
-            }
-            return;
-        }
-        if p.x >= 600 {
-            if p.y < 92 {
-                self.state.tab = ((p.x - 600) / 48).clamp(0, 3) as u8;
-                return;
-            }
-            if self.state.confirm_new {
-                if Rect::new(610, 330, 176, 25).contains(p) {
-                    self.state.city = City::new(self.state.city.seed.wrapping_add(1), false);
+                Action::Tab(tab) => {
+                    self.state.panel_open = !self.state.panel_open || self.state.tab != tab;
+                    self.state.tab = tab;
+                    self.state.palette_open = false;
                     self.state.confirm_new = false;
                     self.state.anchor = None;
+                }
+                Action::Category(category) => {
+                    self.state.palette_open =
+                        !self.state.palette_open || self.state.category != category;
+                    self.state.category = category;
+                    self.state.panel_open = false;
+                    self.state.confirm_new = false;
+                    self.state.anchor = None;
+                }
+                Action::SelectTool(tool) => {
+                    self.state.tool = tool;
+                    self.state.anchor = None;
+                    self.state.palette_open = false;
+                    self.state.panel_open = false;
+                    self.state.confirm_new = false;
+                    self.message(format!(
+                        "{} selected. ${} per tile.",
+                        tool.label(),
+                        tool.cost()
+                    ));
+                }
+                Action::ClosePanel => {
+                    self.state.panel_open = false;
+                    self.state.confirm_new = false;
+                }
+                Action::Overlay(overlay) => self.state.overlay = overlay,
+                Action::Tax { row, delta } => {
+                    self.state.city.taxes[row] =
+                        (self.state.city.taxes[row] as i32 + delta).clamp(0, 20) as u8;
+                    self.state.city.refresh();
+                }
+                Action::Funding { row, delta } => {
+                    self.state.city.funding[row] =
+                        (self.state.city.funding[row] as i32 + delta).clamp(0, 150) as u8;
+                    self.state.city.refresh();
+                }
+                Action::Borrow => {
+                    let result = self.state.city.take_loan();
+                    self.message(
+                        result
+                            .map(|_| "Loan received: $10,000.".to_string())
+                            .unwrap_or_else(|e| e),
+                    );
+                }
+                Action::Repay => {
+                    let result = self.state.city.repay_loan();
+                    self.message(
+                        result
+                            .map(|_| "Loan repaid.".to_string())
+                            .unwrap_or_else(|e| e),
+                    );
+                }
+                Action::Policy(row) => {
+                    self.state.city.policies[row] = !self.state.city.policies[row];
+                    self.state.city.refresh();
+                }
+                Action::Disaster(disaster) => {
+                    self.state.city.disaster(disaster);
+                    self.message(
+                        self.state
+                            .city
+                            .messages
+                            .last()
+                            .cloned()
+                            .unwrap_or_else(|| "Emergency services are responding.".into()),
+                    );
+                    self.cues.push(1);
+                }
+                Action::NewCity => {
+                    self.state.confirm_new = true;
+                    self.state.panel_open = true;
+                    self.state.palette_open = false;
+                    self.state.draft_seed = self
+                        .state
+                        .world_seed
+                        .unwrap_or(self.state.city.seed)
+                        .wrapping_add(1)
+                        .to_string();
+                    self.state.seed_replace = true;
+                }
+                Action::CancelNew => self.state.confirm_new = false,
+                Action::MapStyle(style) => self.state.map_style = style,
+                Action::SelectSeed => self.state.seed_replace = true,
+                Action::ClearSeed => {
+                    self.state.draft_seed.clear();
+                    self.state.seed_replace = false;
+                }
+                Action::BackspaceSeed => {
+                    self.state.draft_seed.pop();
+                    self.state.seed_replace = false;
+                }
+                Action::SeedDigit(digit) => {
+                    if self.state.seed_replace {
+                        self.state.draft_seed.clear();
+                        self.state.seed_replace = false;
+                    }
+                    if digit <= 9 && self.state.draft_seed.len() < 20 {
+                        self.state.draft_seed.push((b'0' + digit) as char);
+                    }
+                }
+                Action::ShuffleSeed => {
+                    let seed = StateHasher::new()
+                        .u64(self.state.city.seed)
+                        .u32(self.state.tick)
+                        .bytes(self.state.draft_seed.as_bytes())
+                        .finish();
+                    self.state.draft_seed = seed.to_string();
+                    self.state.seed_replace = true;
+                }
+                Action::ConfirmNew => {
+                    let Ok(seed) = self.state.draft_seed.parse::<u64>() else {
+                        self.message("Enter a whole-number seed from 0 to 18446744073709551615.");
+                        return;
+                    };
+                    let style = self.state.map_style;
+                    self.state.city = City::generated(seed, style);
+                    self.state.world_seed = Some(seed);
+                    self.state.world_style = Some(style);
+                    self.state.confirm_new = false;
+                    self.state.panel_open = false;
+                    self.state.palette_open = false;
+                    self.state.anchor = None;
+                    self.state.selected = None;
+                    self.state.hover = None;
                     self.state.speed = 0;
-                    self.message("A fresh valley. Connect a road to the map edge, then add power, water and zones.");
-                }
-                if Rect::new(610, 360, 176, 25).contains(p) {
-                    self.state.confirm_new = false;
-                }
-                return;
-            }
-            match self.state.tab {
-                0 => {
-                    if Rect::new(610, 354, 176, 25).contains(p) {
-                        self.state.tab = 3;
-                    }
-                    if Rect::new(610, 386, 176, 25).contains(p) {
-                        self.state.confirm_new = true;
-                    }
-                }
-                1 => {
-                    if (125..341).contains(&p.y) {
-                        let n = ((p.y - 125) / 24) as u8;
-                        if n < 9 {
-                            self.state.overlay = n;
-                        }
-                    }
-                }
-                2 => {
-                    if (162..234).contains(&p.y) {
-                        let row = ((p.y - 162) / 24) as usize;
-                        let d = if p.x < 696 { -1 } else { 1 };
-                        self.state.city.taxes[row] =
-                            (self.state.city.taxes[row] as i32 + d).clamp(0, 20) as u8;
-                    } else if (254..326).contains(&p.y) {
-                        let row = ((p.y - 254) / 18) as usize;
-                        let d = if p.x < 696 { -10 } else { 10 };
-                        self.state.city.funding[row] =
-                            (self.state.city.funding[row] as i32 + d).clamp(0, 150) as u8;
-                    } else if Rect::new(610, 333, 84, 23).contains(p) {
-                        let r = self.state.city.take_loan();
-                        self.message(
-                            r.map(|_| "Loan received: $10,000.".to_string())
-                                .unwrap_or_else(|e| e),
-                        );
-                    } else if Rect::new(700, 333, 86, 23).contains(p) {
-                        let r = self.state.city.repay_loan();
-                        self.message(r.map(|_| "Loan repaid.".to_string()).unwrap_or_else(|e| e));
-                    } else if (370..434).contains(&p.y) {
-                        let row = ((p.y - 370) / 16) as usize;
-                        if row < 4 {
-                            self.state.city.policies[row] = !self.state.city.policies[row];
-                        }
-                    }
-                }
-                _ => {
-                    if (297..343).contains(&p.y) {
-                        let idx = ((p.x - 610) / 35).clamp(0, 4) as usize;
-                        let d = [
-                            Disaster::Fire,
-                            Disaster::Flood,
-                            Disaster::Earthquake,
-                            Disaster::Tornado,
-                            Disaster::Meltdown,
-                        ][idx];
-                        self.state.city.disaster(d);
-                        self.message(
-                            self.state
-                                .city
-                                .messages
-                                .last()
-                                .cloned()
-                                .unwrap_or_else(|| "Emergency services are responding.".into()),
-                        );
-                        self.cues.push(1);
-                    } else if Rect::new(610, 386, 176, 25).contains(p) {
-                        self.state.confirm_new = true;
-                    }
+                    self.state.cam_x = 24;
+                    self.state.cam_y = 24;
+                    self.state.overlay = 0;
+                    self.message(format!("{} map · Seed {}. Connect a road to the map edge, then add power, water and zones.",style.label(),seed));
                 }
             }
-            if self.state.tab == 2 {
-                self.state.city.refresh();
-            }
+            return;
+        }
+        if layout::blocked_map(&self.state, p) {
             return;
         }
         if let Some(at) = self.pick(p) {
@@ -404,7 +441,10 @@ impl GameLogic for BlueCity {
     const CONTROLS: &'static str = "Click to build | WASD/arrows pan | K save | L load | Esc menu";
     const VERIFY_TICKS: u32 = 1440;
     fn new(seed: u64) -> Self {
-        Self{state:State{city:City::new(seed,true),tick:0,clock:0,speed:1,tool:Tool::Inspect,category:0,cam_x:24,cam_y:24,zoom:2,overlay:0,tab:0,hover:None,selected:None,anchor:None,notice:"Welcome, Mayor. Your town is ready to grow. Add roads and zone new neighborhoods.".into(),notice_ticks:600,confirm_new:false},cues:vec![]}
+        Self{state:State{city:City::new(seed,true),tick:0,clock:0,speed:1,tool:Tool::Inspect,category:0,cam_x:24,cam_y:24,zoom:2,overlay:0,tab:0,hover:None,selected:None,anchor:None,notice:"Welcome, Mayor. Your town is ready to grow. Add roads and zone new neighborhoods.".into(),notice_ticks:600,confirm_new:false,panel_open:false,palette_open:false,draft_seed:default_draft_seed(),map_style:MapStyle::default(),seed_replace:true,world_seed:None,world_style:None},cues:vec![]}
+    }
+    fn pointer_target_only_on_press() -> bool {
+        true
     }
     fn tick(&self) -> u32 {
         self.state.tick
@@ -414,9 +454,10 @@ impl GameLogic for BlueCity {
     }
     fn verification_input(t: u32) -> Intent {
         let p = match t {
-            10 => Some(Point::new(344, 414)),
-            12 => Some(Point::new(284, 211)),
-            14 => Some(Point::new(395, 50)),
+            10 => Some(Point::new(58, 423)),
+            12 => Some(Point::new(460, 374)),
+            14 => Some(Point::new(388, 219)),
+            16 => Some(Point::new(534, 423)),
             _ => None,
         };
         Intent {
@@ -427,13 +468,13 @@ impl GameLogic for BlueCity {
     }
     fn probe_input() -> Intent {
         Intent {
-            pointer: Some(Point::new(558, 50)),
+            pointer: Some(Point::new(708, 423)),
             action: true,
             ..Default::default()
         }
     }
     fn probe_success(&self) -> bool {
-        self.state.cam_x > 24
+        self.state.zoom > 2
     }
     fn take_cues(&mut self) -> Vec<usize> {
         std::mem::take(&mut self.cues)
@@ -499,6 +540,26 @@ impl Simulation for BlueCity {
 }
 impl Snapshot for BlueCity {
     const KIND: &'static str = "bluecity";
+    const VERSION: u32 = 2;
+    // Version 1 is released. Keep this migration immutable: future state
+    // changes add another step rather than changing how old towns are loaded.
+    const MIGRATIONS: &'static [vesper3d::runtime::snapshot::Migration] =
+        &[vesper3d::runtime::snapshot::Migration {
+            from: 1,
+            step: |mut state| {
+                let fields = state
+                    .as_object_mut()
+                    .ok_or("Version 1 BlueCity state must be an object.")?;
+                fields.insert("panel_open".into(), false.into());
+                fields.insert("palette_open".into(), false.into());
+                fields.insert("draft_seed".into(), "7".into());
+                fields.insert("map_style".into(), "River".into());
+                fields.insert("seed_replace".into(), true.into());
+                fields.insert("world_seed".into(), serde_json::Value::Null);
+                fields.insert("world_style".into(), serde_json::Value::Null);
+                Ok(state)
+            },
+        }];
     type State = State;
     fn capture(&self) -> State {
         self.state.clone()
@@ -512,6 +573,9 @@ impl Snapshot for BlueCity {
             || state.tab > 3
             || state.category > 4
             || state.clock >= 240
+            || state.draft_seed.len() > 20
+            || !state.draft_seed.bytes().all(|b| b.is_ascii_digit())
+            || state.world_seed.is_some() != state.world_style.is_some()
             || state.cam_x < 0
             || state.cam_y < 0
             || state.cam_x >= SIZE as i32
@@ -563,7 +627,8 @@ mod tests {
     fn pointer_selects_tools_and_two_click_zoning() {
         let mut g = BlueCity::new(7);
         g.state.speed = 0;
-        g.click(Point::new(30, 414));
+        g.click(Point::new(58, 423));
+        g.click(Point::new(80, 374));
         assert_eq!(g.state.tool, Tool::Build(Kind::Residential));
         let target = (15..35)
             .flat_map(|y| (15..35).map(move |x| [x, y]))
@@ -577,7 +642,7 @@ mod tests {
             .unwrap();
         let p = g.project(target[0], target[1]);
         let p = Point::new(p.x, p.y + 3);
-        assert!(Rect::new(0, 64, 592, 306).contains(p));
+        assert!(Rect::new(0, 0, 800, 450).contains(p));
         assert_eq!(g.pick(p), Some(target));
         g.click(p);
         assert_eq!(g.state.anchor, Some(target));
@@ -590,15 +655,15 @@ mod tests {
     #[test]
     fn pause_budget_and_invalid_save() {
         let mut g = BlueCity::new(7);
-        g.click(Point::new(20, 50));
+        g.click(Point::new(652, 33));
         let month = g.state.city.month;
         for _ in 0..300 {
             g.step(&Intent::default());
         }
         assert_eq!(month, g.state.city.month);
-        g.state.tab = 2;
+        g.click(Point::new(683, 78));
         let tax = g.state.city.taxes[0];
-        g.click(Point::new(770, 170));
+        g.click(Point::new(763, 167));
         assert_eq!(g.state.city.taxes[0], tax + 1);
         let mut save = g.capture();
         save.zoom = 0;

@@ -6,6 +6,7 @@ fn config() -> macroquad::conf::Conf {
         vesper3d::viewer::identity::Identity::parse(include_str!("../assets/identity.json"))
             .unwrap();
     let mut config = client::config(&identity.title);
+    config.miniquad_conf.sample_count = 4;
     config.miniquad_conf.icon = Some(macroquad::miniquad::conf::Icon {
         small: *include_bytes!("../assets/icon_16.rgba"),
         medium: *include_bytes!("../assets/icon_32.rgba"),

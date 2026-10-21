@@ -15,6 +15,28 @@ pub enum Terrain {
     Hill,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MapStyle {
+    #[default]
+    River,
+    Coast,
+    Islands,
+    Highlands,
+}
+
+impl MapStyle {
+    pub const ALL: [Self; 4] = [Self::River, Self::Coast, Self::Islands, Self::Highlands];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::River => "River",
+            Self::Coast => "Coast",
+            Self::Islands => "Islands",
+            Self::Highlands => "Highlands",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Kind {
     Empty,
@@ -303,7 +325,152 @@ fn random(seed: &mut u64) -> u64 {
     *seed
 }
 
+// Coordinate hashing is separate from the simulation's random stream. Generation
+// reads the entire u64 seed, including zero, without advancing disaster randomness.
+fn terrain_hash(seed: u64, x: i32, y: i32, layer: u64) -> u64 {
+    let mut value = seed
+        .wrapping_add(layer.wrapping_mul(0x9e3779b97f4a7c15))
+        .wrapping_add((x as u64).wrapping_mul(0x632be59bd9b4e019))
+        .wrapping_add((y as u64).wrapping_mul(0x85157af5d66d8cbd));
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    value ^ (value >> 31)
+}
+
+// Integer smoothstep interpolation keeps coastlines coherent and reproducible on
+// every target rather than scattering independent random water tiles.
+fn terrain_noise(seed: u64, x: i32, y: i32, scale: i32, layer: u64) -> i32 {
+    let gx = x.div_euclid(scale);
+    let gy = y.div_euclid(scale);
+    let sx = x.rem_euclid(scale);
+    let sy = y.rem_euclid(scale);
+    let tx = sx * sx * (3 * scale - 2 * sx);
+    let ty = sy * sy * (3 * scale - 2 * sy);
+    let denominator = scale * scale * scale;
+    let sample = |dx, dy| (terrain_hash(seed, gx + dx, gy + dy, layer) & 1023) as i32;
+    let top = (sample(0, 0) * (denominator - tx) + sample(1, 0) * tx) / denominator;
+    let bottom = (sample(0, 1) * (denominator - tx) + sample(1, 1) * tx) / denominator;
+    (top * (denominator - ty) + bottom * ty) / denominator
+}
+
+fn generated_terrain(seed: u64, style: MapStyle) -> Vec<Tile> {
+    let parameter =
+        |layer, minimum, range| minimum + (terrain_hash(seed, 0, 0, layer) % range as u64) as i32;
+    let rotation = parameter(1, 0, 4);
+    let river_center = parameter(2, 8, 6);
+    let river_radius = parameter(3, 2, 2);
+    let coast = parameter(4, 10, 8);
+    let islands = [
+        (
+            parameter(10, 21, 7),
+            parameter(11, 21, 7),
+            parameter(12, 11, 4),
+        ),
+        (
+            parameter(13, 5, 8),
+            parameter(14, 5, 8),
+            parameter(15, 5, 4),
+        ),
+        (
+            parameter(16, 35, 8),
+            parameter(17, 5, 8),
+            parameter(18, 5, 4),
+        ),
+        (
+            parameter(19, 5, 8),
+            parameter(20, 35, 8),
+            parameter(21, 5, 4),
+        ),
+        (
+            parameter(22, 35, 8),
+            parameter(23, 35, 8),
+            parameter(24, 5, 4),
+        ),
+        (0, parameter(25, 12, 24), parameter(26, 5, 3)),
+    ];
+    let lakes = [
+        (
+            parameter(30, 7, 10),
+            parameter(31, 7, 10),
+            parameter(32, 4, 3),
+        ),
+        (
+            parameter(33, 33, 8),
+            parameter(34, 33, 8),
+            parameter(35, 3, 3),
+        ),
+    ];
+    (0..AREA)
+        .map(|i| {
+            let x = (i % SIZE) as i32;
+            let y = (i / SIZE) as i32;
+            let (u, v) = match rotation {
+                0 => (x, y),
+                1 => (47 - y, x),
+                2 => (47 - x, 47 - y),
+                _ => (y, 47 - x),
+            };
+            let coast_noise = terrain_noise(seed, u, v, 7, 40) - 512;
+            let water = match style {
+                MapStyle::River => {
+                    let bend = (terrain_noise(seed, 0, v, 10, 41) - 512) / 128;
+                    (u - river_center - bend).abs() <= river_radius
+                }
+                MapStyle::Coast => {
+                    let shoreline = coast + (terrain_noise(seed, 0, v, 9, 42) - 512) / 120;
+                    u < shoreline
+                }
+                MapStyle::Islands => !islands.iter().any(|&(cx, cy, radius)| {
+                    let dx = u - cx;
+                    let dy = v - cy;
+                    (radius * radius - dx * dx - dy * dy) * 16 + coast_noise / 5 >= 0
+                }),
+                MapStyle::Highlands => lakes.iter().any(|&(cx, cy, radius)| {
+                    let dx = u - cx;
+                    let dy = v - cy;
+                    (radius * radius - dx * dx - dy * dy) * 16 + coast_noise / 5 >= 0
+                }),
+            };
+            let elevation =
+                terrain_noise(seed, x, y, 12, 50) * 2 + terrain_noise(seed, x, y, 5, 51);
+            let hills = if style == MapStyle::Highlands {
+                1400
+            } else {
+                2250
+            };
+            let terrain = if (21..=27).contains(&x) && (21..=27).contains(&y) {
+                // A small arrival clearing leaves a usable first building site.
+                Terrain::Grass
+            } else if water {
+                Terrain::Water
+            } else if elevation > hills {
+                Terrain::Hill
+            } else if terrain_noise(seed, x, y, 5, 52) > 620 {
+                Terrain::Forest
+            } else {
+                Terrain::Grass
+            };
+            Tile::new(terrain)
+        })
+        .collect()
+}
+
 impl City {
+    /// Generate an undeveloped region without changing the legacy starter map.
+    pub fn generated(seed: u64, style: MapStyle) -> Self {
+        let mut city = Self::new(seed, false);
+        city.tiles = generated_terrain(seed, style);
+        city.history.clear();
+        city.messages.clear();
+        city.refresh();
+        city.record_history();
+        city.message(format!(
+            "{} region · Seed {seed}. Connect a road to the map edge, then add power, water and zones.",
+            style.label()
+        ));
+        city
+    }
+
     pub fn new(seed: u64, starter: bool) -> Self {
         let mut terrain_seed = seed.wrapping_add(0x6a09e667f3bcc909);
         let tiles = (0..AREA)

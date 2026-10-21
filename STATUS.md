@@ -1,4 +1,14 @@
-# BlueCity 0.1.1
+# BlueCity 0.2.0
+
+## Full-screen map and seeded regions
+
+The city now fills the window behind compact translucent controls. Management drawers and the build palette start closed and toggle on demand. Embedded Liberation Sans regular/bold fonts are rasterized for the window size; multisampling, quieter terrain colors, detailed facades and shorelines improve clarity. Tree trunks and canopies keep clear of roads, bridges and rail.
+
+New map creation offers River, Coast, Islands and Highlands styles. Enter an unsigned 64-bit seed by keyboard or keypad, or choose New seed. The same style and seed reproduce the same initial landscape. Generation starts a blank, paused town with $60,000; its original recipe remains available after saving and after the simulation's random stream advances.
+
+All 39 Rust tests pass, including generated-map usability/reproducibility, the new floating controls, and migration of actual version 1 manual and automatic save frames. Snapshot payload version 2 explicitly migrates older towns without changing their city state or future simulation. Native software captures were reviewed at 960×540, 1280×720 and 1920×1080, including typed seed entry and map creation. Current evidence is under `.blue-check/ui-polish/`. Physical device/audio review remains separate.
+
+The launcher delivery below records version 0.1.1; 0.2.0 publication will use a separately verified immutable installer.
 
 ## Launcher delivery
 

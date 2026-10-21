@@ -21,8 +21,8 @@ pub fn project(x: i32, y: i32, view: View) -> (i32, i32) {
         _ => 12,
     };
     (
-        296 + (x - view.cam_x - y + view.cam_y) * w,
-        217 + (x - view.cam_x + y - view.cam_y) * (w / 2),
+        400 + (x - view.cam_x - y + view.cam_y) * w,
+        225 + (x - view.cam_x + y - view.cam_y) * (w / 2),
     )
 }
 
@@ -104,9 +104,31 @@ impl Iso {
         let e = self.p(u + w / 2., v + d / 2., 0.);
         let f = self.p(u - w / 2., v + d / 2., 0.);
         let lift = vec2(0., z);
-        quad(b, e, e - lift, b - lift, tint(c, 0.67));
-        quad(e, f, f - lift, e - lift, tint(c, 0.83));
-        quad(a - lift, b - lift, e - lift, f - lift, c);
+        quad(
+            b,
+            e,
+            e - lift,
+            b - lift,
+            mix(tint(c, 0.69), rgb(68, 100, 113), 0.07),
+        );
+        quad(e, f, f - lift, e - lift, tint(c, 0.87));
+        quad(a - lift, b - lift, e - lift, f - lift, tint(c, 1.035));
+        let scale = self.w / 12.;
+        if z > 4. * scale && w > 0.44 && d > 0.44 {
+            let edge = mix(c, rgb(250, 244, 220), 0.29);
+            for (p, q) in [(b - lift, e - lift), (e - lift, f - lift)] {
+                draw_line(p.x, p.y, q.x, q.y, 0.5 * scale, edge);
+            }
+            draw_line(e.x, e.y, e.x, e.y - z, 0.4 * scale, tint(c, 0.73));
+            draw_line(
+                e.x,
+                e.y,
+                f.x,
+                f.y,
+                0.45 * scale,
+                alpha(rgb(44, 75, 77), 0.4),
+            );
+        }
     }
     // Footprint, elevations and color describe one authored building primitive.
     #[allow(clippy::too_many_arguments)]
@@ -120,87 +142,86 @@ impl Iso {
     // Window placement shares the building footprint plus its visual seed and color.
     #[allow(clippy::too_many_arguments)]
     fn windows(self, u: f32, v: f32, w: f32, d: f32, z: f32, seed: u32, glass: Color) {
-        let scale = self.w / 12.;
-        let rows = (z / (4. * scale)).floor() as u32;
+        let s = self.w / 12.;
+        let rows = (z / (4. * s)).floor() as u32;
         let cols = if w > 0.65 { 3 } else { 2 };
+        let frame = rgb(60, 95, 108);
         for row in 0..rows.saturating_sub(1) {
             for col in 0..cols {
-                let h = 2.5 * scale + row as f32 * 4. * scale;
+                let h = 2.1 * s + row as f32 * 4. * s;
                 let pos = (col as f32 + 0.5) / cols as f32;
-                let c = if (seed + row * 5 + col * 3).is_multiple_of(7) {
-                    rgb(255, 223, 138)
+                let c = if seed.wrapping_add(row * 5 + col * 3).is_multiple_of(13) {
+                    rgb(245, 213, 151)
                 } else {
                     glass
                 };
-                let a = self.p(u - w / 2. + w * pos, v + d / 2. + 0.006, h);
-                let b = self.p(u + w / 2. + 0.006, v - d / 2. + d * pos, h);
-                draw_line(
-                    a.x - 0.7 * scale,
-                    a.y - 0.35 * scale,
-                    a.x + 0.7 * scale,
-                    a.y + 0.35 * scale,
-                    1.05 * scale,
+                let wu = w / cols as f32 * 0.51;
+                let wv = d / cols as f32 * 0.51;
+                let a = u - w / 2. + w * pos;
+                let b = v - d / 2. + d * pos;
+                quad(
+                    self.p(a - wu / 2., v + d / 2. + 0.008, h),
+                    self.p(a + wu / 2., v + d / 2. + 0.008, h),
+                    self.p(a + wu / 2., v + d / 2. + 0.008, h + 1.9 * s),
+                    self.p(a - wu / 2., v + d / 2. + 0.008, h + 1.9 * s),
+                    frame,
+                );
+                quad(
+                    self.p(a - wu / 2. + 0.015, v + d / 2. + 0.01, h + 0.35 * s),
+                    self.p(a + wu / 2. - 0.015, v + d / 2. + 0.01, h + 0.35 * s),
+                    self.p(a + wu / 2. - 0.015, v + d / 2. + 0.01, h + 1.65 * s),
+                    self.p(a - wu / 2. + 0.015, v + d / 2. + 0.01, h + 1.65 * s),
                     c,
                 );
-                draw_line(
-                    b.x - 0.7 * scale,
-                    b.y + 0.35 * scale,
-                    b.x + 0.7 * scale,
-                    b.y - 0.35 * scale,
-                    1.05 * scale,
+                quad(
+                    self.p(u + w / 2. + 0.008, b - wv / 2., h),
+                    self.p(u + w / 2. + 0.008, b + wv / 2., h),
+                    self.p(u + w / 2. + 0.008, b + wv / 2., h + 1.9 * s),
+                    self.p(u + w / 2. + 0.008, b - wv / 2., h + 1.9 * s),
+                    tint(frame, 0.85),
+                );
+                quad(
+                    self.p(u + w / 2. + 0.01, b - wv / 2. + 0.015, h + 0.35 * s),
+                    self.p(u + w / 2. + 0.01, b + wv / 2. - 0.015, h + 0.35 * s),
+                    self.p(u + w / 2. + 0.01, b + wv / 2. - 0.015, h + 1.65 * s),
+                    self.p(u + w / 2. + 0.01, b - wv / 2. + 0.015, h + 1.65 * s),
                     tint(c, 0.86),
                 );
             }
         }
     }
     fn shadow(self, u: f32, v: f32, w: f32, d: f32, z: f32) {
-        let c = Color::new(0.07, 0.16, 0.13, 0.16);
-        quad(
-            self.p(u - w / 2., v - d / 2., 0.),
-            self.p(u + w / 2., v - d / 2., 0.),
-            self.p(u + w / 2. + z / 55., v + d / 2. + z / 90., 0.),
-            self.p(u - w / 2. + z / 55., v + d / 2. + z / 90., 0.),
-            c,
-        );
+        let b = self.p(u + w / 2., v - d / 2., 0.);
+        let e = self.p(u + w / 2., v + d / 2., 0.);
+        let f = self.p(u - w / 2., v + d / 2., 0.);
+        let cast = vec2(z * 0.36, z * 0.16);
+        let soft = cast + vec2(0.9, 0.6) * (self.w / 12.);
+        quad(b, e, e + soft, b + soft, Color::new(0.05, 0.17, 0.16, 0.07));
+        quad(e, f, f + soft, e + soft, Color::new(0.05, 0.17, 0.16, 0.07));
+        quad(b, e, e + cast, b + cast, Color::new(0.05, 0.14, 0.15, 0.17));
+        quad(e, f, f + cast, e + cast, Color::new(0.05, 0.14, 0.15, 0.17));
     }
 }
 
 pub fn map<'a>(city: &'a City, view: View, scene: &mut Scene<'a>) {
-    scene.render_view(0, LogicalRect::new(0, 64, 592, 306), move |viewport| {
+    scene.render_view(0, LogicalRect::new(0, 0, 800, 450), move |viewport| {
         let mut camera =
-            Camera2D::from_display_rect(macroquad::prelude::Rect::new(0., 64., 592., 306.));
+            Camera2D::from_display_rect(macroquad::prelude::Rect::new(0., 0., 800., 450.));
         camera.viewport = Some(viewport);
         set_camera(&camera);
-        draw_rectangle(0., 64., 592., 306., rgb(18, 38, 44));
-        // The grid in the sea of the world makes the edge of the buildable region clear.
-        for n in -35..60 {
-            let a = project(n, 0, view);
-            let b = project(n, SIZE as i32, view);
-            draw_line(
-                a.0 as f32,
-                a.1 as f32,
-                b.0 as f32,
-                b.1 as f32,
-                0.4,
-                rgb(24, 47, 51),
-            );
-            let a = project(0, n, view);
-            let b = project(SIZE as i32, n, view);
-            draw_line(
-                a.0 as f32,
-                a.1 as f32,
-                b.0 as f32,
-                b.1 as f32,
-                0.4,
-                rgb(24, 47, 51),
-            );
+        draw_rectangle(0., 0., 800., 450., rgb(38, 100, 124));
+        // Open water carries the landscape beyond the edge of the surveyed region.
+        for row in 0..22 {
+            let y = row as f32 * 23. + 4.;
+            let x = (row * 137 % 790) as f32;
+            draw_line(x, y, x + 13., y, 0.55, alpha(rgb(118, 183, 185), 0.18));
         }
         let w = match view.zoom {
             1 => 8.,
             3 => 18.,
             _ => 12.,
         };
-        // Back-to-front diagonal order also orders trees, cars, and building facades.
+        let mut visible = Vec::with_capacity(1200);
         for sum in 0..(SIZE * 2 - 1) {
             for y in 0..SIZE {
                 if sum < y {
@@ -211,37 +232,47 @@ pub fn map<'a>(city: &'a City, view: View, scene: &mut Scene<'a>) {
                     continue;
                 }
                 let (sx, sy) = project(x as i32, y as i32, view);
-                if sx < -(w as i32) - 8 || sx > 610 || !(40..=450).contains(&sy) {
+                if sx < -(w as i32) - 14 || sx > 824 || !(-20..=550).contains(&sy) {
                     continue;
                 }
-                let iso = Iso {
-                    x: sx as f32,
-                    y: sy as f32,
-                    w,
-                    h: w / 2.,
-                };
-                let t = &city.tiles[y * SIZE + x];
-                let n = noise(x as i32, y as i32);
-                ground(city, t, iso, x, y, n, view);
-                object(city, t, iso, x, y, n, view);
-                if view.overlay > 0 {
-                    overlay(t, iso, view.overlay);
+                visible.push((
+                    x,
+                    y,
+                    Iso {
+                        x: sx as f32,
+                        y: sy as f32,
+                        w,
+                        h: w / 2.,
+                    },
+                    noise(x as i32, y as i32),
+                ));
+            }
+        }
+        // Lay the landscape first, so building shadows can fall naturally across lots.
+        for &(x, y, iso, n) in &visible {
+            ground(city, &city.tiles[y * SIZE + x], iso, x, y, n, view);
+        }
+        // The same back-to-front order preserves facade and tree occlusion.
+        for &(x, y, iso, n) in &visible {
+            let t = &city.tiles[y * SIZE + x];
+            object(city, t, iso, x, y, n, view);
+            if view.overlay > 0 {
+                overlay(t, iso, view.overlay);
+            }
+            if let (Some(a), Some(h)) = (view.anchor, view.hover) {
+                let tx = x as i32;
+                let ty = y as i32;
+                if tx >= a[0].min(h[0])
+                    && tx <= a[0].max(h[0])
+                    && ty >= a[1].min(h[1])
+                    && ty <= a[1].max(h[1])
+                {
+                    iso.diamond(Color::new(0.22, 0.95, 0.84, 0.2));
+                    iso.edge(Color::new(0.4, 1., 0.9, 0.6), 0.8);
                 }
-                if let (Some(a), Some(h)) = (view.anchor, view.hover) {
-                    let tx = x as i32;
-                    let ty = y as i32;
-                    if tx >= a[0].min(h[0])
-                        && tx <= a[0].max(h[0])
-                        && ty >= a[1].min(h[1])
-                        && ty <= a[1].max(h[1])
-                    {
-                        iso.diamond(Color::new(0.22, 0.95, 0.84, 0.2));
-                        iso.edge(Color::new(0.4, 1., 0.9, 0.6), 0.8);
-                    }
-                }
-                if t.fire > 0 {
-                    fire(iso, t.fire, view.tick, n);
-                }
+            }
+            if t.fire > 0 {
+                fire(iso, t.fire, view.tick, n);
             }
         }
         if let Some([x, y]) = view.hover {
@@ -253,15 +284,12 @@ pub fn map<'a>(city: &'a City, view: View, scene: &mut Scene<'a>) {
                     w,
                     h: w / 2.,
                 };
-                iso.diamond(Color::new(0.62, 1., 0.88, 0.16));
-                iso.edge(rgb(164, 255, 222), 1.5);
+                iso.diamond(Color::new(0.62, 1., 0.88, 0.14));
+                iso.edge(rgb(191, 255, 225), 1.4);
                 let p = iso.p(-0.5, -0.5, 0.);
-                draw_circle(p.x, p.y, 1.5, rgb(204, 255, 234));
+                draw_circle(p.x, p.y, 1.4, rgb(221, 255, 235));
             }
         }
-        // A subtle vignette edge anchors the map without obscuring construction.
-        draw_rectangle(0., 64., 592., 1., rgb(49, 80, 82));
-        draw_rectangle(0., 369., 592., 1., rgb(8, 24, 31));
         set_default_camera();
         Ok(())
     });
@@ -280,21 +308,15 @@ fn street(k: Kind) -> bool {
     matches!(k, Kind::Road | Kind::Avenue)
 }
 fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
-    let grass = match n % 5 {
-        0 => rgb(119, 156, 105),
-        1 => rgb(125, 163, 109),
-        2 => rgb(129, 166, 113),
-        3 => rgb(124, 160, 107),
-        _ => rgb(132, 166, 114),
-    };
+    let broad = (x as f32 * 0.14).sin() * 0.45
+        + (y as f32 * 0.11).cos() * 0.35
+        + ((x + y) as f32 * 0.08).sin() * 0.2;
+    let grass = tint(rgb(113, 157, 113), 1. + broad * 0.025);
+    let scale = i.w / 12.;
     match t.terrain {
         Terrain::Water => {
-            let c = match n % 4 {
-                0 => rgb(48, 124, 148),
-                1 => rgb(45, 119, 144),
-                _ => rgb(49, 127, 149),
-            };
-            i.diamond(c);
+            let depth = ((x as f32 * 0.15).sin() + (y as f32 * 0.12).cos()) * 0.012;
+            i.diamond(tint(rgb(39, 112, 139), 1. + depth));
             for (dx, dy, u1, v1, u2, v2) in [
                 (1, 0, 0.5, -0.5, 0.5, 0.5),
                 (0, 1, -0.5, 0.5, 0.5, 0.5),
@@ -302,41 +324,83 @@ fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
                 (0, -1, -0.5, -0.5, 0.5, -0.5),
             ] {
                 if neighbour(city, x, y, dx, dy).is_some_and(|t| t.terrain != Terrain::Water) {
-                    i.line(u1, v1, u2, v2, 0., 1.4, rgb(122, 184, 172));
+                    let inward = 0.15;
+                    quad(
+                        i.p(u1, v1, 0.),
+                        i.p(u2, v2, 0.),
+                        i.p(u2 - dx as f32 * inward, v2 - dy as f32 * inward, 0.),
+                        i.p(u1 - dx as f32 * inward, v1 - dy as f32 * inward, 0.),
+                        rgb(67, 145, 153),
+                    );
+                    i.line(u1, v1, u2, v2, 0., 1.05 * scale, rgb(181, 198, 155));
+                    i.line(
+                        u1 - dx as f32 * 0.035,
+                        v1 - dy as f32 * 0.035,
+                        u2 - dx as f32 * 0.035,
+                        v2 - dy as f32 * 0.035,
+                        0.,
+                        0.45 * scale,
+                        alpha(rgb(170, 223, 203), 0.7),
+                    );
                 }
             }
-            if (n + v.tick / 20) % 7 < 2 {
+            if n.is_multiple_of(3) {
                 let u = ((n >> 3) % 5) as f32 / 10. - 0.2;
-                i.line(-0.23, u, 0.1, u, 0., 0.7, alpha(rgb(154, 216, 213), 0.4));
+                let p = i.p(u, 0.05, 0.);
+                let glint = 0.28 + ((v.tick % 720) as f32 * 0.014 + (n % 71) as f32).sin() * 0.12;
+                draw_line(
+                    p.x - 2.4 * scale,
+                    p.y,
+                    p.x + 2.4 * scale,
+                    p.y,
+                    0.55 * scale,
+                    alpha(rgb(143, 209, 205), glint),
+                );
+                if n.is_multiple_of(9) {
+                    draw_line(
+                        p.x - scale,
+                        p.y + 1.8 * scale,
+                        p.x + 2.9 * scale,
+                        p.y + 1.8 * scale,
+                        0.45 * scale,
+                        alpha(rgb(143, 209, 205), glint * 0.6),
+                    );
+                }
             }
         }
         Terrain::Hill => {
-            i.diamond(tint(grass, 0.9));
-            let top = i.p(-0.1, -0.1, 3. * i.w / 12.);
+            i.diamond(grass);
+            let top = i.p(-0.08, -0.12, 2. * scale);
             draw_triangle(
                 i.p(-0.5, -0.5, 0.),
                 i.p(0.5, -0.5, 0.),
                 top,
-                tint(grass, 1.06),
+                tint(grass, 1.045),
             );
             draw_triangle(
                 i.p(0.5, -0.5, 0.),
                 i.p(0.5, 0.5, 0.),
                 top,
-                tint(grass, 0.89),
+                tint(grass, 0.96),
             );
-            draw_triangle(i.p(0.5, 0.5, 0.), i.p(-0.5, 0.5, 0.), top, grass);
+            draw_triangle(
+                i.p(0.5, 0.5, 0.),
+                i.p(-0.5, 0.5, 0.),
+                top,
+                tint(grass, 0.985),
+            );
             draw_triangle(
                 i.p(-0.5, 0.5, 0.),
                 i.p(-0.5, -0.5, 0.),
                 top,
-                tint(grass, 1.03),
+                tint(grass, 1.02),
             );
         }
         _ => {
             i.diamond(grass);
-            if n.is_multiple_of(6) {
-                i.patch(0.1, -0.2, 0.08, 0.12, 0., tint(grass, 1.09));
+            if n.is_multiple_of(17) {
+                i.line(0.15, -0.2, 0.18, -0.25, 0., 0.5 * scale, tint(grass, 1.12));
+                i.line(0.22, -0.16, 0.25, -0.21, 0., 0.5 * scale, tint(grass, 1.1));
             }
         }
     }
@@ -345,35 +409,35 @@ fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
         Kind::Residential | Kind::Commercial | Kind::Industrial
     ) {
         let c = match t.kind {
-            Kind::Residential => rgb(103, 178, 126),
-            Kind::Commercial => rgb(93, 164, 195),
-            _ => rgb(208, 175, 95),
+            Kind::Residential => rgb(84, 183, 121),
+            Kind::Commercial => rgb(79, 164, 198),
+            _ => rgb(215, 174, 84),
         };
         if t.level == 0 {
-            i.diamond(mix(grass, c, 0.42));
-            i.edge(alpha(tint(c, 1.25), 0.65), 0.55);
-            i.patch(0., 0., 0.22, 0.22, 0., alpha(c, 0.7));
+            i.diamond(mix(grass, c, 0.28));
+            i.edge(alpha(tint(c, 1.25), 0.6), 0.55);
+            i.patch(0., 0., 0.19, 0.19, 0., alpha(c, 0.65));
         } else {
-            i.diamond(mix(grass, rgb(164, 167, 151), 0.25));
+            i.diamond(mix(grass, rgb(173, 185, 158), 0.28));
         }
     }
-    // Map edges sit on a shallow, cutaway plinth.
+    // A shallow earth edge reads as a coastline, without a permanent UI frame.
     if x == SIZE - 1 {
         quad(
             i.p(0.5, -0.5, 0.),
             i.p(0.5, 0.5, 0.),
-            i.p(0.5, 0.5, -4.),
-            i.p(0.5, -0.5, -4.),
-            rgb(62, 89, 68),
+            i.p(0.5, 0.5, -3.),
+            i.p(0.5, -0.5, -3.),
+            rgb(73, 108, 85),
         );
     }
     if y == SIZE - 1 {
         quad(
             i.p(-0.5, 0.5, 0.),
             i.p(0.5, 0.5, 0.),
-            i.p(0.5, 0.5, -4.),
-            i.p(-0.5, 0.5, -4.),
-            rgb(74, 101, 73),
+            i.p(0.5, 0.5, -3.),
+            i.p(-0.5, 0.5, -3.),
+            rgb(86, 122, 91),
         );
     }
 }
@@ -387,18 +451,26 @@ fn tree(i: Iso, u: f32, v: f32, n: u32, size: f32) {
         3.1 * s,
         1.2 * s,
         0.,
-        Color::new(0.08, 0.19, 0.12, 0.16),
+        Color::new(0.04, 0.17, 0.14, 0.2),
     );
-    draw_line(p.x, p.y, p.x, p.y - 5. * s, 1.3 * s, rgb(101, 95, 65));
-    let c = match n % 4 {
-        0 => rgb(40, 112, 83),
-        1 => rgb(54, 131, 87),
-        2 => rgb(67, 143, 91),
-        _ => rgb(79, 147, 94),
+    draw_line(p.x, p.y, p.x, p.y - 5. * s, 1.3 * s, rgb(100, 96, 68));
+    let c = match n % 5 {
+        0 => rgb(43, 111, 78),
+        1 => rgb(51, 125, 86),
+        2 => rgb(61, 133, 88),
+        3 => rgb(72, 138, 93),
+        _ => rgb(94, 145, 92),
     };
-    draw_circle(p.x, p.y - 6.5 * s, 3.9 * s, c);
-    draw_circle(p.x - 1.1 * s, p.y - 8. * s, 2.7 * s, tint(c, 1.12));
-    draw_circle(p.x + 1.7 * s, p.y - 6. * s, 2.3 * s, tint(c, 0.91));
+    draw_poly(p.x, p.y - 6.3 * s, 8, 4.2 * s, 15., c);
+    draw_poly(
+        p.x - 1.3 * s,
+        p.y - 8.1 * s,
+        7,
+        2.8 * s,
+        -10.,
+        tint(c, 1.19),
+    );
+    draw_poly(p.x + 1.9 * s, p.y - 5.6 * s, 7, 2.5 * s, 5., tint(c, 0.88));
 }
 fn conifer(i: Iso, u: f32, v: f32, n: u32) {
     let p = i.p(u, v, 0.);
@@ -412,11 +484,71 @@ fn conifer(i: Iso, u: f32, v: f32, n: u32) {
             vec2(p.x + w, p.y - 2. * s - h),
             vec2(p.x, p.y - 8. * s - h),
             if n.is_multiple_of(2) {
-                rgb(42, 112, 80)
+                rgb(35, 105, 81)
             } else {
-                rgb(51, 125, 83)
+                rgb(43, 119, 85)
             },
         );
+    }
+}
+
+// A tree's crown is projected well above its own tile. Check the whole silhouette,
+// including the trunk, so neighboring foliage cannot appear planted in a street.
+fn foliage_clear(
+    city: &City,
+    at: [usize; 2],
+    i: Iso,
+    position: [f32; 2],
+    size: f32,
+    conifer: bool,
+) -> bool {
+    let tile = &city.tiles[at[1] * SIZE + at[0]];
+    if !matches!(tile.kind, Kind::Empty | Kind::Park | Kind::Residential)
+        || tile.terrain == Terrain::Water
+    {
+        return false;
+    }
+    let scale = i.w / 12. * size;
+    let p = i.p(position[0], position[1], 0.);
+    let height = if conifer { 13. } else { 11.2 } * scale;
+    let half_width = if conifer { 4.1 } else { 4.8 } * scale;
+    let half_height = (height + 0.4 * scale) / 2.;
+    let crown_y = p.y - height / 2. + 0.2 * scale;
+    for dy in -3..=3 {
+        for dx in -3..=3 {
+            if !neighbour(city, at[0], at[1], dx, dy)
+                .is_some_and(|t| matches!(t.kind, Kind::Road | Kind::Avenue | Kind::Rail))
+            {
+                continue;
+            }
+            let center = i.p(dx as f32, dy as f32, 0.);
+            let road_w = i.w + 0.7 * scale;
+            let road_h = i.h + 0.6 * scale;
+            let delta_x = (p.x - center.x).abs();
+            let delta_y = (crown_y - center.y).abs();
+            // Separating axes for a rectangle and a diamond keep this conservative
+            // at junction corners as well as on straight streets and bridges.
+            if delta_x <= half_width + road_w
+                && delta_y <= half_height + road_h
+                && delta_x / road_w + delta_y / road_h
+                    <= 1. + half_width / road_w + half_height / road_h
+            {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn lot_tree(city: &City, at: [usize; 2], i: Iso, position: [f32; 2], n: u32, size: f32) {
+    if foliage_clear(city, at, i, position, size, false) {
+        tree(i, position[0], position[1], n, size);
+    }
+}
+
+fn lot_conifer(city: &City, at: [usize; 2], i: Iso, position: [f32; 2], n: u32) {
+    if foliage_clear(city, at, i, position, 1., true) {
+        conifer(i, position[0], position[1], n);
     }
 }
 
@@ -425,15 +557,15 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
     match t.kind {
         Kind::Empty => {
             if t.terrain == Terrain::Forest {
-                tree(i, -0.2, -0.22, n, 1.);
+                lot_tree(city, [x, y], i, [-0.2, -0.22], n, 1.);
                 if !n.is_multiple_of(3) {
-                    tree(i, 0.22, 0.1, n + 1, 0.8);
+                    lot_tree(city, [x, y], i, [0.22, 0.1], n + 1, 0.8);
                 }
                 if n.is_multiple_of(3) {
-                    conifer(i, 0.2, 0.2, n);
+                    lot_conifer(city, [x, y], i, [0.2, 0.2], n);
                 }
             } else if t.terrain == Terrain::Hill && n.is_multiple_of(3) {
-                conifer(i, 0.1, 0., n);
+                lot_conifer(city, [x, y], i, [0.1, 0.], n);
             }
         }
         Kind::Road | Kind::Avenue => road(city, t, i, x, y, n, v),
@@ -479,7 +611,7 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
         }
         Kind::Residential => {
             if t.level > 0 {
-                residence(i, t, n);
+                residence(city, [x, y], i, t, n);
             }
         }
         Kind::Commercial => {
@@ -493,11 +625,11 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             }
         }
         Kind::Park => {
-            i.diamond(rgb(105, 164, 108));
-            i.patch(0., 0., 0.16, 1., 0., rgb(207, 195, 153));
-            i.patch(0., 0., 1., 0.14, 0., rgb(207, 195, 153));
-            tree(i, -0.25, -0.2, n, 0.9);
-            tree(i, 0.25, 0.22, n + 1, 0.8);
+            i.diamond(rgb(97, 157, 109));
+            i.patch(0., 0., 0.16, 1., 0., rgb(202, 198, 161));
+            i.patch(0., 0., 1., 0.14, 0., rgb(202, 198, 161));
+            lot_tree(city, [x, y], i, [-0.25, -0.2], n, 0.9);
+            lot_tree(city, [x, y], i, [0.25, 0.22], n + 1, 0.8);
             let p = i.p(0., 0., 0.);
             draw_ellipse(p.x, p.y, 2.3 * s, 1.2 * s, 0., rgb(130, 206, 212));
             i.line(-0.35, 0.28, -0.15, 0.28, 1. * s, 1.3 * s, rgb(139, 107, 70));
@@ -649,12 +781,12 @@ fn road(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
     i.diamond(if t.terrain == Terrain::Water {
         rgb(108, 134, 129)
     } else {
-        rgb(169, 178, 151)
+        rgb(185, 194, 176)
     });
     let asphalt = if wide {
-        rgb(77, 100, 105)
+        rgb(49, 70, 82)
     } else {
-        rgb(88, 110, 111)
+        rgb(58, 77, 87)
     };
     i.patch(0., 0., r * 2., r * 2., 0., asphalt);
     let mut joins = 0;
@@ -678,13 +810,13 @@ fn road(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
                 if wide {
                     rgb(226, 200, 131)
                 } else {
-                    rgb(201, 208, 183)
+                    rgb(208, 219, 207)
                 },
             );
         }
     }
     if wide {
-        i.patch(0., 0., 0.12, 0.12, 0., rgb(135, 160, 124));
+        i.patch(0., 0., 0.08, 0.08, 0., rgb(226, 200, 131));
     }
     if joins >= 3 && v.zoom >= 2 {
         for k in 0..3 {
@@ -730,16 +862,14 @@ fn road(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             1.6 * s,
             color,
         );
-        if t > 0.05 && t < 0.3 {
-            let p = i.p(u, z, 1.8 * s);
-            draw_rectangle(
-                p.x - 0.7 * s,
-                p.y - 0.4 * s,
-                1.3 * s,
-                0.7 * s,
-                rgb(83, 124, 133),
-            );
-        }
+        i.patch(
+            u,
+            z,
+            if along_x { 0.1 } else { 0.085 },
+            if along_x { 0.085 } else { 0.1 },
+            1.8 * s,
+            rgb(75, 123, 139),
+        );
     }
 }
 
@@ -801,20 +931,20 @@ fn rail(city: &City, i: Iso, x: usize, y: usize, v: View) {
     }
 }
 
-fn residence(i: Iso, t: &Tile, n: u32) {
+fn residence(city: &City, at: [usize; 2], i: Iso, t: &Tile, n: u32) {
     let s = i.w / 12.;
     let c = match n % 5 {
-        0 => rgb(225, 206, 162),
-        1 => rgb(232, 219, 180),
-        2 => rgb(190, 208, 174),
-        3 => rgb(214, 191, 157),
-        _ => rgb(213, 222, 184),
+        0 => rgb(222, 214, 185),
+        1 => rgb(232, 226, 202),
+        2 => rgb(189, 207, 190),
+        3 => rgb(210, 185, 159),
+        _ => rgb(202, 216, 207),
     };
     if t.level == 1 {
         let u = if n.is_multiple_of(2) { -0.06 } else { 0.08 };
         let z = -0.07;
         i.patch(0.23, 0.27, 0.15, 0.43, 0., rgb(202, 198, 161));
-        i.shadow(u, z, 0.62, 0.6, 7. * s);
+        i.shadow(u, z, 0.62, 0.6, 10. * s);
         i.block(u, z, 0.62, 0.6, 6. * s, c);
         // A pitched terracotta roof and its two gables distinguish low-density homes.
         let a = i.p(u - 0.36, z - 0.35, 6. * s);
@@ -829,9 +959,9 @@ fn residence(i: Iso, t: &Tile, n: u32) {
             r2,
             r1,
             if n.is_multiple_of(3) {
-                rgb(84, 136, 142)
+                rgb(105, 143, 151)
             } else {
-                rgb(188, 122, 91)
+                rgb(188, 132, 106)
             },
         );
         quad(
@@ -840,13 +970,31 @@ fn residence(i: Iso, t: &Tile, n: u32) {
             e,
             d,
             if n.is_multiple_of(3) {
-                rgb(64, 113, 126)
+                rgb(72, 113, 126)
             } else {
-                rgb(151, 100, 81)
+                rgb(153, 103, 87)
             },
         );
         draw_triangle(b, e, r2, tint(c, 0.73));
-        i.windows(u, z, 0.62, 0.6, 6. * s, n, rgb(103, 158, 162));
+        draw_line(r1.x, r1.y, r2.x, r2.y, 0.55 * s, rgb(214, 192, 161));
+        draw_line(d.x, d.y, e.x, e.y, 0.55 * s, rgb(115, 104, 91));
+        i.windows(u, z, 0.62, 0.6, 6. * s, n, rgb(132, 177, 184));
+        quad(
+            i.p(u + 0.01, z + 0.31, 0.),
+            i.p(u + 0.13, z + 0.31, 0.),
+            i.p(u + 0.13, z + 0.31, 3.4 * s),
+            i.p(u + 0.01, z + 0.31, 3.4 * s),
+            rgb(97, 118, 112),
+        );
+        i.line(
+            u - 0.32,
+            z + 0.32,
+            u + 0.32,
+            z + 0.32,
+            0.5 * s,
+            0.6 * s,
+            rgb(203, 202, 177),
+        );
         i.raised(
             u - 0.16,
             z - 0.1,
@@ -857,7 +1005,7 @@ fn residence(i: Iso, t: &Tile, n: u32) {
             rgb(160, 133, 108),
         );
         if n.is_multiple_of(2) {
-            tree(i, -0.28, 0.28, n, 0.6);
+            lot_tree(city, at, i, [-0.28, 0.28], n, 0.6);
         }
     } else {
         let h = (9. + t.level as f32 * 4. + (n % 3) as f32 * 2.) * s;
@@ -881,14 +1029,14 @@ fn commercial(i: Iso, t: &Tile, n: u32) {
         (10. + t.level as f32 * 7. + (n % 4) as f32 * 2.) * s
     };
     let c = match n % 4 {
-        0 => rgb(137, 190, 190),
-        1 => rgb(136, 175, 185),
-        2 => rgb(156, 196, 196),
-        _ => rgb(153, 183, 188),
+        0 => rgb(125, 176, 184),
+        1 => rgb(121, 156, 175),
+        2 => rgb(145, 191, 193),
+        _ => rgb(161, 184, 186),
     };
     i.shadow(0., 0., 0.75, 0.72, h);
     i.block(0., 0., 0.75, 0.72, h, c);
-    i.windows(0., 0., 0.75, 0.72, h, n, rgb(191, 223, 212));
+    i.windows(0., 0., 0.75, 0.72, h, n, rgb(179, 218, 221));
     if t.level == 1 {
         let c = if n.is_multiple_of(2) {
             rgb(236, 181, 101)
@@ -910,45 +1058,59 @@ fn commercial(i: Iso, t: &Tile, n: u32) {
 
 fn industry(i: Iso, t: &Tile, n: u32, tick: u32) {
     let s = i.w / 12.;
-    let h = (5. + t.level as f32 * 1.6) * s;
-    i.diamond(rgb(169, 169, 133));
-    i.shadow(0., 0.02, 0.86, 0.7, h);
-    i.block(0., 0.02, 0.86, 0.7, h, rgb(196, 173, 119));
-    // Sawtooth roof strips and warm warehouse doors remain readable at every zoom.
+    let h = (5.5 + t.level as f32 * 1.5) * s;
+    i.diamond(rgb(160, 166, 143));
+    i.shadow(0., 0.02, 0.85, 0.7, h + 3. * s);
+    let brick = if n.is_multiple_of(3) {
+        rgb(189, 159, 131)
+    } else {
+        rgb(201, 188, 155)
+    };
+    i.block(0., 0.02, 0.85, 0.7, h, brick);
     for k in 0..3 {
         let u = -0.27 + k as f32 * 0.27;
         i.patch(
             u,
             0.02,
-            0.2,
-            0.65,
-            h + 0.2 * s,
+            0.23,
+            0.67,
+            h + 0.15 * s,
             if k % 2 == 0 {
-                rgb(142, 159, 145)
+                rgb(113, 143, 145)
             } else {
-                rgb(176, 188, 163)
+                rgb(155, 177, 167)
             },
         );
+        i.patch(u, -0.08, 0.11, 0.32, h + 0.3 * s, rgb(173, 210, 205));
     }
-    i.windows(0., 0.02, 0.86, 0.7, h, n, rgb(127, 151, 143));
-    i.block(
-        0.28,
-        -0.23,
-        0.14,
-        0.14,
-        (15. + t.level as f32 * 2.) * s,
-        rgb(173, 143, 111),
+    i.windows(0., 0.02, 0.85, 0.7, h, n, rgb(150, 181, 174));
+    // Warehouses, small workshops, and smoke-stack factories vary the skyline.
+    if n.is_multiple_of(3) || t.level >= 3 {
+        let top = (11. + t.level as f32 * 2. + (n % 4) as f32) * s;
+        i.raised(-0.27, -0.23, 0.13, 0.14, h, top - h, rgb(163, 139, 123));
+        i.raised(-0.27, -0.23, 0.15, 0.16, top - s, s, rgb(99, 117, 118));
+        smoke(i, -0.27, -0.23, top + s, tick, n, 0.5);
+    } else {
+        i.raised(0.25, -0.2, 0.2, 0.22, h, 2. * s, rgb(180, 199, 188));
+        i.patch(0.25, -0.2, 0.11, 0.13, h + 2.2 * s, rgb(104, 139, 141));
+    }
+    quad(
+        i.p(-0.14, 0.38, 0.),
+        i.p(0.12, 0.38, 0.),
+        i.p(0.12, 0.38, 3.8 * s),
+        i.p(-0.14, 0.38, 3.8 * s),
+        rgb(105, 132, 131),
     );
-    smoke(
-        i,
-        0.28,
-        -0.23,
-        (16. + t.level as f32 * 2.) * s,
-        tick,
-        n,
-        0.62,
+    i.line(
+        -0.14,
+        0.38,
+        0.12,
+        0.38,
+        2.2 * s,
+        0.45 * s,
+        rgb(165, 184, 169),
     );
-    i.block(-0.25, 0.29, 0.16, 0.17, 2. * s, rgb(202, 153, 79));
+    i.block(0.29, 0.28, 0.15, 0.19, 2.1 * s, rgb(204, 157, 87));
 }
 
 fn service(i: Iso, n: u32, c: Color, roof: Color, style: u8) {

@@ -4,6 +4,7 @@
   "controls": "WASD/arrows pan; choose tools, then map; K save, L load, Esc menu, R restart",
   "engine_revision": "1a5b696ee653179c6898b1c4195cb1d3d2715d6e",
   "package": [
-    "assets/audio/riverlight"
+    "assets/audio/riverlight",
+    "assets/fonts/LICENSE.txt"
   ]
 }
