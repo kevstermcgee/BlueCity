@@ -6,7 +6,7 @@ BlueCity is an original, open-ended city management game made with BlueEngine. B
 
 ## Play
 
-For Windows, install and play BlueCity through the [BlueEngine Games launcher](https://kevstermcgee.github.io/BlueEngineGames/games/bluecity/). A [standalone Windows x64 installer](https://github.com/kevstermcgee/BlueEngineGames/releases/download/bluecity-v0.1.1/bluecity-setup-windows-x64.exe) is also available. Installed saves and settings live in your user data folder.
+For Windows, install and play BlueCity through the [BlueEngine Games launcher](https://kevstermcgee.github.io/BlueEngineGames/games/bluecity/). A [standalone Windows x64 installer](https://github.com/kevstermcgee/BlueEngineGames/releases/download/bluecity-v0.2.0/bluecity-setup-windows-x64.exe) is also available. Installed saves and settings live in your user data folder.
 
 The earlier Linux development build has a BlueCity Desktop shortcut. To use its archive, extract `dist/BlueCity-linux-x86_64.zip` and run `./bluecity` from that folder.
 
