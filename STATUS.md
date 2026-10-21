@@ -1,6 +1,10 @@
-# BlueCity 0.1.0
+# BlueCity 0.1.1
 
 ## Launcher delivery
+
+BlueCity 0.1.1 is published in the [BlueEngine Games launcher catalog](https://kevstermcgee.github.io/BlueEngineGames/games/bluecity/). The live feed was verified with 52 games, preserving the packages of all 51 previous games. Its Windows installer is pinned to SHA256 `f56a15b54ed9f2de9dd02228ec2921742ff2778de298dc42165f0f67c97a3b57` and runtime source `7a7a79c81c3fb1007df4e7e8f131163eea66e854`.
+
+The [Windows release workflow](https://github.com/kevstermcgee/BlueCity/actions/runs/39540610720) and [launcher deployment](https://github.com/kevstermcgee/BlueEngineGames/actions/runs/39541336825) passed. Release bytes were checked against both the original release and the trusted launcher release. Windows startup captures confirm the text-only studio card and a start-menu prompt that fits in fullscreen and windowed views. The live game page, thumbnail and three guide captures were fetched successfully. Local publication evidence is recorded in `.blue-check/launcher-publication.json`.
 
 The launcher edition targets native Windows x64 installers and Linux verification. Its runtime and shared installer tooling are pinned to public BlueEngine revision `1a5b696ee653179c6898b1c4195cb1d3d2715d6e`, with a reproducible sibling dependency path. The complete guide includes three authentic gameplay captures and the original human creation request. The Windows workflow verifies formatting, tests, Clippy, declared package/resources, the text-only studio card, fullscreen controls and installer installation/upgrade/uninstallation before creating an immutable release. Launcher catalog publication pins the completed installer hash and exact source commit.
 
@@ -41,4 +45,4 @@ Native world captures, all diagnostic overlays, budget, guide, utility palette a
 - Browser final check: `.blue-check/final-web-build.log`, `.blue-check/web/browser.json`, `.blue-check/web/mobile.json`.
 - Visual captures: `.blue-check/native-preview`, `.blue-check/ui-review`, `.blue-check/web-preview` and `.blue-check/smoke-*`.
 
-The model uses aggregate residents, jobs and commuting pressure rather than a persistent individual agent for every citizen or vehicle. It is a broad classic-style city simulator, with a compact map and five disaster types. Campaign scenarios, regional city simulation and monster/UFO events are not included. No public hosting or publication is claimed. At the original development gate, Windows and macOS were not validated; the launcher delivery workflow now provides separate Windows evidence. macOS is not a declared target.
+The model uses aggregate residents, jobs and commuting pressure rather than a persistent individual agent for every citizen or vehicle. It is a broad classic-style city simulator, with a compact map and five disaster types. Campaign scenarios, regional city simulation and monster/UFO events are not included. At the original development gate, Windows and macOS were not validated; the launcher delivery workflow now provides separate Windows evidence. macOS is not a declared target.
