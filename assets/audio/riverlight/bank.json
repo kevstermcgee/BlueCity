@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "sample_rate": 44100,
+  "effects": {},
+  "music": {
+    "city": {
+      "file": "music-city.wav",
+      "checksum": "1a22f2f132ac9cb5",
+      "frames": 2646000,
+      "peak": 0.3175756,
+      "rms": 0.06856508,
+      "dc": 1.6012649e-7,
+      "seam_jump": 0.0020752586
+    }
+  },
+  "music_scale": 1.0
+}

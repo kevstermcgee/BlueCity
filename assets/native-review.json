@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "checks": [
+    {
+      "id": "city-controls",
+      "area": "controls",
+      "instructions": "Use keyboard and mouse to pan, select tools, lay roads, zone neighborhoods, inspect buildings, change speed, pause, save and load. Check input after window focus changes and exercise a connected controller when available. Record the actual devices used."
+    },
+    {
+      "id": "isometric-camera",
+      "area": "camera",
+      "instructions": "Pan and zoom across the isometric city, inspect terrain and buildings at each zoom, and confirm map picking and tool previews agree with the visible tile."
+    },
+    {
+      "id": "management-interface",
+      "area": "ui",
+      "instructions": "Review the clean centered BlueEngine Games startup text, BlueCity menus, tool categories, overlays, budget and city statistics at the intended window sizes. Confirm labels remain readable and dialogs can be dismissed."
+    },
+    {
+      "id": "city-growth",
+      "area": "gameplay",
+      "instructions": "Build connected roads, power and water infrastructure, zone residential, commercial and industrial land, and observe communities grow. Exercise service coverage, budget decisions and a disaster; record any unexpected behavior."
+    },
+    {
+      "id": "riverlight-audio",
+      "area": "audio",
+      "instructions": "Listen on physical audio output to the Riverlight music and building/interface cues during play. Exercise mute and available volume settings, and describe the audible result and output device."
+    }
+  ]
+}

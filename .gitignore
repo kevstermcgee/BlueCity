@@ -1,0 +1,7 @@
+/target/
+/.blue-check/
+/dist/
+
+/release/
+__pycache__/
+*.py[cod]

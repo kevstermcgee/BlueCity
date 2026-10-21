@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "path": "assets/audio/riverlight/music-city.wav",
+      "format": "PCM 16-bit",
+      "sample_rate": 44100,
+      "channels": 2,
+      "frames": 2646000,
+      "duration_ms": 60000.0,
+      "peak_dbfs": -9.96,
+      "peak_dbfs_channels": [
+        -11.18,
+        -9.96
+      ],
+      "rms_dbfs": -23.77,
+      "crest_db": 13.8,
+      "loudness_lufs_approx": -21.62,
+      "loudness_method": "BS.1770-4 gating: 400 ms blocks, -70 LUFS absolute and -10 LU relative gate",
+      "dc_offset": -0.0,
+      "dc_offset_channels": [
+        -0.0,
+        -0.0
+      ],
+      "clipped_samples": 0,
+      "clipped_pct": 0.0,
+      "clipped_longest_run": 0,
+      "first_sample": -0.03204,
+      "last_sample": -0.03293,
+      "loop": {
+        "enabled": true,
+        "seam_jump": 0.002075,
+        "scan_available": true,
+        "suspected_click": false
+      },
+      "silence": {
+        "threshold_dbfs": -60.0,
+        "leading_ms": 0.0,
+        "trailing_ms": 0.0,
+        "longest_internal_ms": 0.0
+      },
+      "clicks": {
+        "count": 0,
+        "min_jump": 0.02,
+        "first": []
+      },
+      "spectrum": {
+        "frames": 600,
+        "centroid_hz": 301.1,
+        "rolloff85_hz": 387.6,
+        "dominant_hz": 231.7,
+        "band_energy_pct": {
+          "sub": 0.0,
+          "bass": 37.83,
+          "low_mid": 62.17,
+          "high_mid": 0.0,
+          "air": 0.0
+        }
+      },
+      "issues": [],
+      "issue_codes": []
+    }
+  ],
+  "errors": []
+}

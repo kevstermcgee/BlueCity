@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#10213a"/><stop offset="1" stop-color="#133e5c"/></linearGradient><clipPath id="tile"><rect width="512" height="512" rx="88"/></clipPath></defs>
+<g clip-path="url(#tile)"><rect width="512" height="512" fill="url(#sky)"/>
+<circle cx="394" cy="108" r="28" fill="#d4f4ff"/>
+<rect x="78" y="220" width="85" height="154" fill="#248fd6"/><path d="M140 220h23v154h-23z" fill="#1d6dba"/>
+<rect x="180" y="112" width="92" height="262" fill="#70dcf5"/><path d="M250 112h22v262h-22z" fill="#29b6df"/>
+<rect x="216" y="84" width="20" height="28" fill="#70dcf5"/>
+<rect x="290" y="168" width="74" height="206" fill="#3daced"/><path d="M346 168h18v206h-18z" fill="#2480cc"/>
+<rect x="382" y="260" width="56" height="114" fill="#7bdaec"/>
+<g fill="#d8f8ff"><path d="M94 244h13v15H94zM119 244h13v15h-13zM94 277h13v15H94zM119 277h13v15h-13zM94 310h13v15H94zM119 310h13v15h-13zM198 141h15v18h-15zM227 141h15v18h-15zM198 180h15v18h-15zM227 180h15v18h-15zM198 219h15v18h-15zM227 219h15v18h-15zM198 258h15v18h-15zM227 258h15v18h-15zM198 297h15v18h-15zM227 297h15v18h-15zM306 194h13v16h-13zM330 194h13v16h-13zM306 230h13v16h-13zM330 230h13v16h-13zM306 266h13v16h-13zM330 266h13v16h-13zM306 302h13v16h-13zM330 302h13v16h-13zM396 281h12v15h-12zM419 281h12v15h-12zM396 314h12v15h-12zM419 314h12v15h-12z"/></g>
+<path d="M55 374h401v13H55z" fill="#a2e9ee"/>
+<path d="M0 422L90 400l110 14 105-22 105 14 102-18v124H0z" fill="#42b994"/>
+<path d="M0 454l88-22 112 14 108-22 104 13 100-19v28l-100 19-104-13-108 22-112-14-88 22z" fill="#3c9cd9"/>
+<path d="M0 454l88-22 112 14 108-22 104 13 100-19v7l-100 19-104-13-108 22-112-14-88 22z" fill="#83e2ed"/>
+</g></svg>

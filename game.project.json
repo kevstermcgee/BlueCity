@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "bluecity",
+  "presentation": "2d",
+  "runtime": "portable",
+  "targets": [
+    "linux",
+    "windows"
+  ],
+  "networking": "offline",
+  "input": [
+    "keyboard",
+    "mouse",
+    "controller"
+  ],
+  "mobile_controls": {
+    "layout": "tap",
+    "action_label": "Build"
+  },
+  "description": "Build roads and utilities, grow neighborhoods and industry, and guide a thriving city through budgets, services and disasters.",
+  "session_minutes": 60,
+  "complexity": "high"
+}
