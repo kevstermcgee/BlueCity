@@ -16,6 +16,7 @@ pub const ZOOM_MINUS: Rect = Rect::new(662, 408, 28, 30);
 pub const ZOOM_PLUS: Rect = Rect::new(694, 408, 28, 30);
 pub const CENTER: Rect = Rect::new(726, 408, 62, 30);
 pub const CLOSE_PANEL: Rect = Rect::new(760, 106, 20, 20);
+pub const CITY_OVERVIEW: Rect = Rect::new(682, 106, 72, 20);
 pub const NEW_CITY: Rect = Rect::new(560, 362, 216, 26);
 pub const CONFIRM_NEW: Rect = Rect::new(560, 346, 216, 26);
 pub const CANCEL_NEW: Rect = Rect::new(560, 376, 216, 18);
@@ -91,6 +92,7 @@ pub enum Action {
     Zoom(i32),
     Center,
     ClosePanel,
+    CityOverview,
     Overlay(u8),
     Tax { row: usize, delta: i32 },
     Funding { row: usize, delta: i32 },
@@ -146,7 +148,12 @@ pub fn controls(state: &State) -> Vec<(Rect, Action)> {
             result.push((CANCEL_NEW, Action::CancelNew));
         } else {
             match state.tab {
-                0 => result.push((NEW_CITY, Action::NewCity)),
+                0 => {
+                    result.push((NEW_CITY, Action::NewCity));
+                    if state.selected.is_some() {
+                        result.push((CITY_OVERVIEW, Action::CityOverview));
+                    }
+                }
                 1 => {
                     for i in 0..9 {
                         result.push((overlay(i), Action::Overlay(i)));

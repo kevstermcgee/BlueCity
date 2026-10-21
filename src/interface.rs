@@ -402,13 +402,29 @@ fn drawer(ui: &mut Ui, st: &State) {
         "Create a new map"
     } else {
         [
-            "City overview",
+            if st.selected.is_some() {
+                "Block details"
+            } else {
+                "City overview"
+            },
             "Map layers",
             "City budget",
             "Mayor’s guide",
         ][st.tab as usize]
     };
     ui.label(562., 121., title, 15., INK, true);
+    if !st.confirm_new && st.tab == 2 {
+        ui.fit(
+            750.,
+            121.,
+            format!("Net {}", money(c.income - c.expenses)),
+            11.,
+            if c.income >= c.expenses { GREEN } else { RED },
+            true,
+            Align::Right,
+            94.,
+        );
+    }
     ui.line(562., 131., 774., 131., RULE);
     if st.confirm_new {
         ui.fit(
@@ -850,6 +866,7 @@ impl draw::Game for BlueCity {
                 }
                 Action::Center => ui.button(r, "Center", false, true),
                 Action::ClosePanel => ui.button(r, "×", false, false),
+                Action::CityOverview => ui.button(r, "Overview", false, true),
                 Action::Overlay(i) => ui.button(r, OVERLAYS[i as usize], st.overlay == i, false),
                 Action::Tax { delta, .. } | Action::Funding { delta, .. } => {
                     ui.button(r, if delta < 0 { "−" } else { "+" }, false, true)

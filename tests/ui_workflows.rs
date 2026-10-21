@@ -663,3 +663,24 @@ fn generated_world_recipe_survives_rng_changes_and_framed_saves() {
     );
     assert_eq!(restored.state.world_style, Some(MapStyle::River));
 }
+
+#[test]
+fn block_inspection_can_return_to_the_city_wide_overview() {
+    let mut game = paused();
+    let point = game.project(23, 24);
+    click(&mut game, point.x, point.y);
+    assert_eq!(game.state.selected, Some([23, 24]));
+    tap(&mut game, layout::tab(0));
+    assert!(game.state.panel_open);
+    assert!(layout::controls(&game.state)
+        .iter()
+        .any(|(_, a)| matches!(a, layout::Action::CityOverview)));
+    let city = game.state.city.clone();
+    tap(&mut game, layout::CITY_OVERVIEW);
+    assert!(game.state.panel_open);
+    assert_eq!(game.state.selected, None);
+    assert_eq!(game.state.city, city);
+    assert!(!layout::controls(&game.state)
+        .iter()
+        .any(|(_, a)| matches!(a, layout::Action::CityOverview)));
+}

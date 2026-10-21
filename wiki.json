@@ -26,7 +26,8 @@
     "In New map…, choose a style and enter a decimal seed from 0 to 18446744073709551615 with the keyboard or on-screen number buttons. Click the seed field to replace its contents with the next digit; Clear or Ctrl+A clears it, and Back or Backspace removes the last digit. New seed chooses another seed. Generate map replaces the town; Keep this town cancels.",
     "The calendar buttons at the upper right of the top bar pause growth or select 1×, 3× or 10× speed. Pausing the calendar still lets you inspect, build and change management settings.",
     "K saves a manual checkpoint; L loads it. M toggles sound effects, N toggles music and F or F11 toggles fullscreen.",
-    "A controller's directions pan; its primary action activates the current pointer location, or applies the selected tool to the selected or camera-center tile when no pointer is present. Use a mouse pointer to select tools and management buttons."
+    "A controller's directions pan; its primary action activates the current pointer location, or applies the selected tool to the selected or camera-center tile when no pointer is present. Use a mouse pointer to select tools and management buttons.",
+    "In block details, Overview returns to city-wide demand, finances, health and education. The Budget heading shows the current monthly net income."
   ],
   "gallery": [
     {

@@ -46,7 +46,7 @@ Each style offers different geography: a winding river, a broad coastline, an ar
 | Build a transport or utility line | Click the start, then the endpoint; different rows and columns produce an L-shaped route |
 | Zoom / recenter | Click - / + or Center at the bottom right |
 | Cancel a placement | Click Inspect in the bottom dock |
-| Inspect a block | Choose Inspect, click a block, then open City for its details |
+| Inspect a block | Choose Inspect, click a block, then open City for its details; Overview returns to city statistics |
 | Bulldoze | Choose Bulldoze in the bottom dock, then select the area with two clicks |
 | Change speed or pause the calendar | Speed controls at the upper right of the top bar |
 | Change a map layer | Open Maps, choose a layer, then close the drawer if desired |

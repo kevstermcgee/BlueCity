@@ -319,6 +319,7 @@ impl BlueCity {
                     self.state.panel_open = false;
                     self.state.confirm_new = false;
                 }
+                Action::CityOverview => self.state.selected = None,
                 Action::Overlay(overlay) => self.state.overlay = overlay,
                 Action::Tax { row, delta } => {
                     self.state.city.taxes[row] =
