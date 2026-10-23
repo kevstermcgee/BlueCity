@@ -1,10 +1,11 @@
 {
   "title": "BlueCity",
   "tagline": "Build infrastructure. Grow neighborhoods. Shape a thriving city.",
-  "controls": "WASD/arrows pan; choose tools, then map; K save, L load, Esc menu, R restart",
+  "controls": "WASD pan; choose tools, then map; K save, L load, Esc mayor menu; rebind keys in Settings",
   "engine_revision": "1a5b696ee653179c6898b1c4195cb1d3d2715d6e",
   "package": [
     "assets/audio/riverlight",
+    "assets/audio/city-ambience",
     "assets/fonts/LICENSE.txt"
   ]
 }

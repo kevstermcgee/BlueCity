@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "sample_rate": 44100,
+  "effects": {},
+  "music": {
+    "day": {
+      "file": "day.wav",
+      "checksum": "36f3b83729b3ce05",
+      "frames": 529200,
+      "peak": 0.065399169921875,
+      "rms": 0.015228273288994114,
+      "dc": 0.0004467218100619154,
+      "seam_jump": 0.0
+    },
+    "night": {
+      "file": "night.wav",
+      "checksum": "31d5f8b5cf2b006c",
+      "frames": 529200,
+      "peak": 0.07122802734375,
+      "rms": 0.01528444229698271,
+      "dc": 0.00021716007570020195,
+      "seam_jump": 0.0
+    },
+    "rain": {
+      "file": "rain.wav",
+      "checksum": "cc7f46aedc782ba4",
+      "frames": 529200,
+      "peak": 0.080047607421875,
+      "rms": 0.020706877770265013,
+      "dc": 0.0003130503774860639,
+      "seam_jump": 0.0
+    }
+  },
+  "music_scale": 1.0
+}

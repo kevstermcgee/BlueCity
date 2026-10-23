@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use vesper3d::two_d::{client, GameLogic};
+use bluecity::client;
+use vesper3d::two_d::GameLogic;
 fn config() -> macroquad::conf::Conf {
     let identity =
         vesper3d::viewer::identity::Identity::parse(include_str!("../assets/identity.json"))

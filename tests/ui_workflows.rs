@@ -1,6 +1,6 @@
 //! Player-facing workflows: every game action follows the public pointer/Intent route.
 use bluecity::{
-    city::{Kind, MapStyle, Terrain, SIZE},
+    city::{Kind, MapStyle, Terrain},
     layout, BlueCity, Tool,
 };
 use vesper3d::two_d::{GameLogic, Intent, Point, Rect, Simulation, Snapshot};
@@ -64,8 +64,12 @@ fn generate(game: &mut BlueCity, style: usize, seed: &str) {
     assert!(!game.state.confirm_new);
 }
 fn grass_rectangle(game: &BlueCity, width: i32, height: i32) -> [i32; 2] {
-    for y in 12..36 {
-        for x in 12..36 {
+    for y in (game.state.cam_y - 12).max(0)
+        ..(game.state.cam_y + 12).min(i32::from(game.state.city.height) - height)
+    {
+        for x in (game.state.cam_x - 12).max(0)
+            ..(game.state.cam_x + 12).min(i32::from(game.state.city.width) - width)
+        {
             let clear = (y..y + height).all(|ty| {
                 (x..x + width).all(|tx| {
                     let p = game.project(tx, ty);
@@ -98,8 +102,9 @@ fn a_park_builds_with_one_click_and_cannot_be_bought_twice() {
     assert_eq!(game.state.city.money, treasury - Kind::Park.cost());
     assert!(game.state.notice.contains("already"));
 
-    let water = (0..SIZE as i32)
-        .flat_map(|ty| (0..SIZE as i32).map(move |tx| [tx, ty]))
+    let map_width = i32::from(game.state.city.width);
+    let water = (0..i32::from(game.state.city.height))
+        .flat_map(|ty| (0..map_width).map(move |tx| [tx, ty]))
         .find(|[tx, ty]| {
             let p = game.project(*tx, *ty);
             game.pick(p) == Some([*tx, *ty])
@@ -234,8 +239,10 @@ fn map_layers_and_municipal_budget_controls_follow_pointer_input() {
     for policy in 0..4 {
         tap(&mut game, layout::policy(policy));
     }
-    assert_eq!(game.state.city.policies, [true; 4]);
+    assert_eq!(game.state.city.policies, [true, true, true, false]);
+    assert!(game.state.notice.contains("slots"));
     tap(&mut game, layout::policy(2));
+    tap(&mut game, layout::policy(3));
     assert_eq!(game.state.city.policies, [true, true, false, true]);
 
     let treasury = game.state.city.money;
@@ -360,7 +367,8 @@ fn the_map_uses_the_full_viewport_and_floating_panels_mask_only_their_areas() {
     assert_eq!(game.pick(east), Some([36, 14]));
     tap(&mut game, layout::category(0));
     assert!(game.state.palette_open);
-    click(&mut game, 143, 374); // Spacing between palette buttons.
+    let first = layout::palette_tool(0, 0);
+    click(&mut game, first.x + first.w + 2, 374); // Spacing between palette buttons.
     assert_eq!(game.state.city, city);
     assert!(game.state.palette_open);
     tap(&mut game, layout::palette_tool(0, 0));
@@ -393,160 +401,60 @@ fn legacy_json_without_panel_fields_restores_the_city_and_its_exact_future() {
     assert_eq!(loaded.state_hash(), original.state_hash());
 }
 
-// Frozen release-1 schema, including field order: the original game hashed the
-// serialized struct bytes. Do not replace this with the current State or Value,
-// which would change the hash or quietly include future fields in the fixture.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct LegacyState {
-    city: bluecity::city::City,
-    tick: u32,
-    clock: u32,
-    speed: u8,
-    tool: Tool,
-    category: u8,
-    cam_x: i32,
-    cam_y: i32,
-    zoom: i32,
-    overlay: u8,
-    tab: u8,
-    hover: Option<[i32; 2]>,
-    selected: Option<[i32; 2]>,
-    anchor: Option<[i32; 2]>,
-    notice: String,
-    notice_ticks: u32,
-    confirm_new: bool,
-}
-struct LegacyBlueCity {
-    game: BlueCity,
-}
-impl Simulation for LegacyBlueCity {
-    type Input = Intent;
-    fn step(&mut self, input: &Intent) {
-        self.game.step(input);
-    }
-    fn state_hash(&self) -> u64 {
-        vesper3d::two_d::hash_json(&self.capture())
-    }
-}
-impl Snapshot for LegacyBlueCity {
-    const KIND: &'static str = "bluecity";
-    const VERSION: u32 = 1;
-    type State = LegacyState;
-    fn capture(&self) -> LegacyState {
-        let s = &self.game.state;
-        LegacyState {
-            city: s.city.clone(),
-            tick: s.tick,
-            clock: s.clock,
-            speed: s.speed,
-            tool: s.tool,
-            category: s.category,
-            cam_x: s.cam_x,
-            cam_y: s.cam_y,
-            zoom: s.zoom,
-            overlay: s.overlay,
-            tab: s.tab,
-            hover: s.hover,
-            selected: s.selected,
-            anchor: s.anchor,
-            notice: s.notice.clone(),
-            notice_ticks: s.notice_ticks,
-            confirm_new: s.confirm_new,
-        }
-    }
-    fn restore(&mut self, state: LegacyState) -> Result<(), String> {
-        let value = serde_json::to_value(state).map_err(|e| e.to_string())?;
-        self.game
-            .restore(serde_json::from_value(value).map_err(|e| e.to_string())?)
-    }
-}
-
+// Actual checksummed frames captured before introducing the expansion schema.
 #[test]
-fn release_one_manual_and_automatic_frames_migrate_and_resume_exactly() {
-    use vesper3d::{
-        runtime::snapshot,
-        viewer::savestate::{self, SaveSlots},
-    };
-    assert_eq!(<BlueCity as Snapshot>::KIND, "bluecity");
-    assert_eq!(<BlueCity as Snapshot>::VERSION, 2);
-    let mut game = paused();
-    tab(&mut game, 2);
-    tap(&mut game, layout::tax_plus(0));
-    tap(&mut game, layout::policy(2));
-    tap(&mut game, layout::BORROW);
-    tap(&mut game, layout::CLOSE_PANEL);
-    tap(&mut game, layout::speed(2));
-    for _ in 0..487 {
-        game.step(&Intent::default());
-    }
-    assert!(game.state.city.month >= 6);
-    let legacy = LegacyBlueCity { game };
-    assert_ne!(
-        legacy.state_hash(),
-        legacy.game.state_hash(),
-        "adding the UI fields changes the authoritative hash, requiring migration"
-    );
-    let folder = std::env::temp_dir().join(format!(
-        "bluecity-v1-save-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let slots = SaveSlots::new(&folder);
-    snapshot::save_to_slot(&legacy, &slots, "manual", "Manual checkpoint").unwrap();
-    snapshot::autosave(&legacy, &slots, 3, "Automatic checkpoint").unwrap();
-    for (slot, label) in [
-        ("manual", "Manual checkpoint"),
-        ("auto", "Automatic checkpoint"),
+fn released_frames_migrate_preserve_towns_and_resume_exactly() {
+    use vesper3d::{runtime::snapshot, viewer::savestate};
+    assert_eq!(<BlueCity as Snapshot>::VERSION, 3);
+    for bytes in [
+        include_bytes!("fixtures/v1-starter.bcsave").as_slice(),
+        include_bytes!("fixtures/v2-starter.bcsave").as_slice(),
+        include_bytes!("fixtures/v2-generated.bcsave").as_slice(),
     ] {
-        let bytes = std::fs::read(slots.path(slot).unwrap()).unwrap();
-        let frame = savestate::decode(&bytes).unwrap();
-        assert_eq!(frame.header.kind, "bluecity");
-        assert_eq!(frame.header.version, 1);
-        let envelope: serde_json::Value = serde_json::from_slice(frame.payload).unwrap();
-        assert!(envelope["state"].get("panel_open").is_none());
-        assert!(envelope["state"].get("palette_open").is_none());
-        for field in [
-            "draft_seed",
-            "map_style",
-            "seed_replace",
-            "world_seed",
-            "world_style",
-        ] {
-            assert!(envelope["state"].get(field).is_none());
-        }
-        assert_eq!(envelope["hash"], format!("{:016x}", legacy.state_hash()));
-        // The engine verifies the old frame and then applies the game's
-        // migration; a raw JSON deserialize does not exercise this contract.
+        let frame = savestate::decode(bytes).unwrap();
+        let old: serde_json::Value = serde_json::from_slice(frame.payload).unwrap();
         let mut upgraded = BlueCity::new(99);
-        let (header, _) = snapshot::load_from_slot(&mut upgraded, &slots, slot).unwrap();
-        assert_eq!(header.label, label);
-        assert!(!upgraded.state.panel_open && !upgraded.state.palette_open);
-        assert_eq!(upgraded.state.draft_seed, "7");
-        assert_eq!(upgraded.state.map_style, MapStyle::River);
-        assert!(upgraded.state.seed_replace);
-        assert_eq!(upgraded.state.world_seed, None);
-        assert_eq!(upgraded.state.world_style, None);
-        assert_eq!(upgraded.state.city, legacy.game.state.city);
-        let mut reference = BlueCity::new(111);
-        reference.restore(legacy.game.capture()).unwrap();
-        assert_eq!(upgraded.state_hash(), reference.state_hash());
+        snapshot::restore(&mut upgraded, bytes).unwrap();
+        assert_eq!(upgraded.state.city.width, 48);
+        assert_eq!(upgraded.state.city.height, 48);
+        assert_eq!(
+            serde_json::to_value(&upgraded.state.city.tiles).unwrap(),
+            old["state"]["city"]["tiles"]
+        );
+        let city_value = serde_json::to_value(&upgraded.state.city).unwrap();
+        for field in [
+            "money",
+            "month",
+            "population",
+            "jobs",
+            "seed",
+            "taxes",
+            "funding",
+            "policies",
+            "debt",
+        ] {
+            assert_eq!(city_value[field], old["state"]["city"][field], "{field}");
+        }
+        assert_eq!(upgraded.state.ui, bluecity::ui_model::UiState::default());
+        assert!(upgraded
+            .state
+            .city
+            .ext
+            .cells
+            .iter()
+            .all(|c| c.elevation == 0));
+        let current = snapshot::save(&upgraded, "Migrated city").unwrap();
+        assert_eq!(savestate::decode(&current).unwrap().header.version, 3);
+        let mut resumed = BlueCity::new(0);
+        snapshot::restore(&mut resumed, &current).unwrap();
+        assert_eq!(upgraded.state_hash(), resumed.state_hash());
         for _ in 0..960 {
             upgraded.step(&Intent::default());
-            reference.step(&Intent::default());
+            resumed.step(&Intent::default());
         }
-        assert_eq!(upgraded.state.city, reference.state.city);
-        assert_eq!(upgraded.state_hash(), reference.state_hash());
-        let current_bytes = snapshot::save(&upgraded, "Migrated checkpoint").unwrap();
-        let current_frame = savestate::decode(&current_bytes).unwrap();
-        assert_eq!(current_frame.header.version, 2);
-        let mut round_trip = BlueCity::new(123);
-        snapshot::restore(&mut round_trip, &current_bytes).unwrap();
-        assert_eq!(round_trip.state_hash(), upgraded.state_hash());
+        assert_eq!(upgraded.state_hash(), resumed.state_hash());
+        upgraded.state.city.validate().unwrap();
     }
-    std::fs::remove_dir_all(folder).unwrap();
 }
 
 #[test]
@@ -559,6 +467,7 @@ fn seed_and_style_buttons_generate_reproducible_distinct_maps() {
     assert_eq!(first.state.world_seed, Some(u64::MAX));
     assert_eq!(first.state.world_style, Some(MapStyle::River));
     assert_eq!(first.state.city.money, 60_000);
+    assert_eq!(first.state.city.width, 128);
     assert_eq!(first.state.speed, 0);
     let terrain = |g: &BlueCity| {
         g.state

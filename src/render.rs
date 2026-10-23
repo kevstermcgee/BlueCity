@@ -1,7 +1,9 @@
 //! Read-only, asset-free isometric presentation for the BlueCity simulation.
-use crate::city::{City, Kind, Terrain, Tile, SIZE};
+use crate::city::{City, Kind, Terrain, Tile};
 use macroquad::prelude::*;
 use vesper3d::two_d::{draw::Scene, Rect as LogicalRect};
+#[path = "graphics.rs"]
+mod graphics;
 
 #[derive(Clone, Copy)]
 pub struct View {
@@ -10,20 +12,23 @@ pub struct View {
     pub zoom: i32,
     pub overlay: u8,
     pub hover: Option<[i32; 2]>,
+    #[allow(dead_code)]
     pub anchor: Option<[i32; 2]>,
     pub tick: u32,
+    pub underground: bool,
+    pub calm: bool,
+    pub photo: bool,
+    pub service: usize,
 }
 
-pub fn project(x: i32, y: i32, view: View) -> (i32, i32) {
-    let w = match view.zoom {
-        1 => 8,
-        3 => 18,
-        _ => 12,
-    };
-    (
-        400 + (x - view.cam_x - y + view.cam_y) * w,
-        225 + (x - view.cam_x + y - view.cam_y) * (w / 2),
-    )
+fn project_cell(city: &City, x: i32, y: i32, view: View) -> (i32, i32) {
+    let elevation = city
+        .idx(x, y)
+        .and_then(|i| city.ext.visual_tile(i))
+        .map(|c| c.elevation)
+        .unwrap_or(0);
+    let p = crate::projection::project(view.cam_x, view.cam_y, view.zoom, x, y, elevation);
+    (p.x, p.y)
 }
 
 fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -203,91 +208,116 @@ impl Iso {
     }
 }
 
+fn map_camera(viewport: (i32, i32, i32, i32)) -> Camera2D {
+    Camera2D {
+        target: vec2(400., 225.),
+        // The native screen camera matrix applies its own Y inversion. Positive
+        // zoom therefore keeps our logical top-left origin aligned with UI/picking.
+        zoom: vec2(2. / 800., 2. / 450.),
+        viewport: Some(viewport),
+        ..Default::default()
+    }
+}
+
 pub fn map<'a>(city: &'a City, view: View, scene: &mut Scene<'a>) {
     scene.render_view(0, LogicalRect::new(0, 0, 800, 450), move |viewport| {
-        let mut camera =
-            Camera2D::from_display_rect(macroquad::prelude::Rect::new(0., 0., 800., 450.));
-        camera.viewport = Some(viewport);
+        let camera = map_camera(viewport);
         set_camera(&camera);
-        draw_rectangle(0., 0., 800., 450., rgb(38, 100, 124));
-        // Open water carries the landscape beyond the edge of the surveyed region.
-        for row in 0..22 {
-            let y = row as f32 * 23. + 4.;
-            let x = (row * 137 % 790) as f32;
-            draw_line(x, y, x + 13., y, 0.55, alpha(rgb(118, 183, 185), 0.18));
+        draw_rectangle(
+            0.,
+            0.,
+            800.,
+            450.,
+            if view.underground {
+                rgb(43, 64, 69)
+            } else {
+                rgb(38, 100, 124)
+            },
+        );
+        let (tile_w, tile_h) = crate::projection::tile_size(view.zoom);
+        let w = tile_w as f32;
+        // Restrict traversal to the camera's possible grid range, including tall buildings.
+        let radius = ((800. / (w * 2.) + 650. / (tile_h as f32 * 2.)) / 2.).ceil() as i32 + 5;
+        let min_x = (view.cam_x - radius).max(0) as usize;
+        let max_x = (view.cam_x + radius).min(i32::from(city.width) - 1).max(0) as usize;
+        let min_y = (view.cam_y - radius).max(0) as usize;
+        let max_y = (view.cam_y + radius).min(i32::from(city.height) - 1).max(0) as usize;
+        let width = usize::from(city.width);
+        let mut animation = view;
+        if view.calm {
+            animation.tick = 0;
         }
-        let w = match view.zoom {
-            1 => 8.,
-            3 => 18.,
-            _ => 12.,
-        };
-        let mut visible = Vec::with_capacity(1200);
-        for sum in 0..(SIZE * 2 - 1) {
-            for y in 0..SIZE {
+        let mut visible = Vec::with_capacity(2400);
+        for sum in min_x + min_y..=max_x + max_y {
+            for y in min_y..=max_y {
                 if sum < y {
                     continue;
                 }
                 let x = sum - y;
-                if x >= SIZE {
+                if x < min_x || x > max_x {
                     continue;
                 }
-                let (sx, sy) = project(x as i32, y as i32, view);
-                if sx < -(w as i32) - 14 || sx > 824 || !(-20..=550).contains(&sy) {
+                let index = y * width + x;
+                let (sx, sy) = project_cell(city, x as i32, y as i32, view);
+                if sx < -tile_w - 20 || sx > 828 || !(-25..=570).contains(&sy) {
                     continue;
                 }
-                visible.push((
-                    x,
-                    y,
-                    Iso {
-                        x: sx as f32,
-                        y: sy as f32,
-                        w,
-                        h: w / 2.,
-                    },
-                    noise(x as i32, y as i32),
-                ));
-            }
-        }
-        // Lay the landscape first, so building shadows can fall naturally across lots.
-        for &(x, y, iso, n) in &visible {
-            ground(city, &city.tiles[y * SIZE + x], iso, x, y, n, view);
-        }
-        // The same back-to-front order preserves facade and tree occlusion.
-        for &(x, y, iso, n) in &visible {
-            let t = &city.tiles[y * SIZE + x];
-            object(city, t, iso, x, y, n, view);
-            if view.overlay > 0 {
-                overlay(t, iso, view.overlay);
-            }
-            if let (Some(a), Some(h)) = (view.anchor, view.hover) {
-                let tx = x as i32;
-                let ty = y as i32;
-                if tx >= a[0].min(h[0])
-                    && tx <= a[0].max(h[0])
-                    && ty >= a[1].min(h[1])
-                    && ty <= a[1].max(h[1])
-                {
-                    iso.diamond(Color::new(0.22, 0.95, 0.84, 0.2));
-                    iso.edge(Color::new(0.4, 1., 0.9, 0.6), 0.8);
-                }
-            }
-            if t.fire > 0 {
-                fire(iso, t.fire, view.tick, n);
-            }
-        }
-        if let Some([x, y]) = view.hover {
-            if x >= 0 && y >= 0 && x < SIZE as i32 && y < SIZE as i32 {
-                let (sx, sy) = project(x, y, view);
                 let iso = Iso {
                     x: sx as f32,
                     y: sy as f32,
                     w,
-                    h: w / 2.,
+                    h: tile_h as f32,
+                };
+                visible.push((x, y, index, iso, noise(x as i32, y as i32)));
+            }
+        }
+        for &(x, y, index, iso, n) in &visible {
+            let t = &city.tiles[index];
+            if view.underground {
+                graphics::underground_ground(city, index, iso);
+            } else {
+                ground(city, t, iso, x, y, n, animation);
+                graphics::terrain_detail(city, index, iso, animation);
+            }
+        }
+        let vehicle_order = graphics::vehicle_order(city);
+        let eras = graphics::building_eras(city);
+        for &(x, y, index, iso, n) in &visible {
+            let t = &city.tiles[index];
+            if view.underground {
+                graphics::underground_network(city, index, iso, view);
+            } else if !graphics::lot_stage(city, index, t, iso, n, view) {
+                object(city, t, iso, x, y, n, animation);
+                graphics::wear(city, index, t, iso, n, eras[index]);
+            }
+            graphics::vehicles_at(city, index, view, &vehicle_order);
+            if view.overlay > 0 {
+                overlay(city, index, t, iso, view);
+            }
+            if t.fire > 0 && !view.underground {
+                fire(city, iso, t.fire, animation.tick, n);
+            }
+        }
+        graphics::atmosphere(city, view);
+        if !view.underground {
+            for &(_, _, index, iso, n) in &visible {
+                graphics::night_lights(city, index, iso, n, view);
+                graphics::problems(city, index, iso, n, view);
+            }
+            graphics::weather(city, view);
+            graphics::events(city, view);
+        }
+        if let Some([x, y]) = view.hover.filter(|_| !view.photo) {
+            if city.idx(x, y).is_some() {
+                let (sx, sy) = project_cell(city, x, y, view);
+                let iso = Iso {
+                    x: sx as f32,
+                    y: sy as f32,
+                    w,
+                    h: tile_h as f32,
                 };
                 iso.diamond(Color::new(0.62, 1., 0.88, 0.14));
                 iso.edge(rgb(191, 255, 225), 1.4);
-                let p = iso.p(-0.5, -0.5, 0.);
-                draw_circle(p.x, p.y, 1.4, rgb(221, 255, 235));
             }
         }
         set_default_camera();
@@ -296,27 +326,26 @@ pub fn map<'a>(city: &'a City, view: View, scene: &mut Scene<'a>) {
 }
 
 fn neighbour(city: &City, x: usize, y: usize, dx: i32, dy: i32) -> Option<&Tile> {
-    let nx = x as i32 + dx;
-    let ny = y as i32 + dy;
-    if nx < 0 || ny < 0 || nx >= SIZE as i32 || ny >= SIZE as i32 {
-        None
-    } else {
-        Some(&city.tiles[ny as usize * SIZE + nx as usize])
-    }
+    city.tile(x as i32 + dx, y as i32 + dy)
 }
 fn street(k: Kind) -> bool {
-    matches!(k, Kind::Road | Kind::Avenue)
+    k.is_road()
 }
+
 fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
     let broad = (x as f32 * 0.14).sin() * 0.45
         + (y as f32 * 0.11).cos() * 0.35
         + ((x + y) as f32 * 0.08).sin() * 0.2;
-    let grass = tint(rgb(113, 157, 113), 1. + broad * 0.025);
+    let grass = graphics::grass(city, tint(rgb(113, 157, 113), 1. + broad * 0.025));
     let scale = i.w / 12.;
     match t.terrain {
         Terrain::Water => {
             let depth = ((x as f32 * 0.15).sin() + (y as f32 * 0.12).cos()) * 0.012;
-            i.diamond(tint(rgb(39, 112, 139), 1. + depth));
+            i.diamond(graphics::water_color(
+                city,
+                y * usize::from(city.width) + x,
+                tint(rgb(39, 112, 139), 1. + depth),
+            ));
             for (dx, dy, u1, v1, u2, v2) in [
                 (1, 0, 0.5, -0.5, 0.5, 0.5),
                 (0, 1, -0.5, 0.5, 0.5, 0.5),
@@ -344,7 +373,7 @@ fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
                     );
                 }
             }
-            if n.is_multiple_of(3) {
+            if n.is_multiple_of(3) && (!city.ext.enabled || city.ext.weather.temperature >= -4) {
                 let u = ((n >> 3) % 5) as f32 / 10. - 0.2;
                 let p = i.p(u, 0.05, 0.);
                 let glint = 0.28 + ((v.tick % 720) as f32 * 0.014 + (n % 71) as f32).sin() * 0.12;
@@ -422,7 +451,7 @@ fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
         }
     }
     // A shallow earth edge reads as a coastline, without a permanent UI frame.
-    if x == SIZE - 1 {
+    if x == usize::from(city.width) - 1 {
         quad(
             i.p(0.5, -0.5, 0.),
             i.p(0.5, 0.5, 0.),
@@ -431,7 +460,7 @@ fn ground(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             rgb(73, 108, 85),
         );
     }
-    if y == SIZE - 1 {
+    if y == usize::from(city.height) - 1 {
         quad(
             i.p(-0.5, 0.5, 0.),
             i.p(0.5, 0.5, 0.),
@@ -502,26 +531,73 @@ fn foliage_clear(
     size: f32,
     conifer: bool,
 ) -> bool {
-    let tile = &city.tiles[at[1] * SIZE + at[0]];
-    if !matches!(tile.kind, Kind::Empty | Kind::Park | Kind::Residential)
+    let tile = &city.tiles[at[1] * usize::from(city.width) + at[0]];
+    if !(matches!(
+        tile.kind,
+        Kind::Empty
+            | Kind::Park
+            | Kind::Residential
+            | Kind::Cemetery
+            | Kind::Playground
+            | Kind::DogPark
+            | Kind::SkatePark
+            | Kind::WaterfrontPark
+            | Kind::NatureReserve
+    ) || tile.kind.category() == 4)
         || tile.terrain == Terrain::Water
     {
         return false;
     }
-    let scale = i.w / 12. * size;
+    let cell_index = at[1] * usize::from(city.width) + at[0];
+    let age = city
+        .ext
+        .visual_tile(cell_index)
+        .map(|c| c.tree_age)
+        .unwrap_or(600);
+    let maturity = if city.ext.enabled {
+        0.48 + f32::from(age.min(1000)) / 1700.
+    } else {
+        1.
+    };
+    let scale = i.w / 12. * size * maturity;
     let p = i.p(position[0], position[1], 0.);
-    let height = if conifer { 13. } else { 11.2 } * scale;
-    let half_width = if conifer { 4.1 } else { 4.8 } * scale;
+    let evergreen = conifer || city.ext.climate == crate::world::Climate::Alpine;
+    let tropical = city.ext.climate == crate::world::Climate::Tropical;
+    let height = if evergreen {
+        13.
+    } else if tropical {
+        15.5
+    } else {
+        11.2
+    } * scale;
+    let half_width = if evergreen {
+        4.1
+    } else if tropical {
+        6.
+    } else {
+        4.8
+    } * scale;
     let half_height = (height + 0.4 * scale) / 2.;
     let crown_y = p.y - height / 2. + 0.2 * scale;
     for dy in -3..=3 {
         for dx in -3..=3 {
             if !neighbour(city, at[0], at[1], dx, dy)
-                .is_some_and(|t| matches!(t.kind, Kind::Road | Kind::Avenue | Kind::Rail))
+                .is_some_and(|t| street(t.kind) || t.kind == Kind::Rail)
             {
                 continue;
             }
-            let center = i.p(dx as f32, dy as f32, 0.);
+            let mut center = i.p(dx as f32, dy as f32, 0.);
+            let here = city
+                .ext
+                .visual_tile(cell_index)
+                .map(|c| c.elevation)
+                .unwrap_or(0);
+            let other = city
+                .idx(at[0] as i32 + dx, at[1] as i32 + dy)
+                .and_then(|idx| city.ext.visual_tile(idx))
+                .map(|c| c.elevation)
+                .unwrap_or(0);
+            center.y += f32::from(here - other) * i.h / 16.;
             let road_w = i.w + 0.7 * scale;
             let road_h = i.h + 0.6 * scale;
             let delta_x = (p.x - center.x).abs();
@@ -542,13 +618,13 @@ fn foliage_clear(
 
 fn lot_tree(city: &City, at: [usize; 2], i: Iso, position: [f32; 2], n: u32, size: f32) {
     if foliage_clear(city, at, i, position, size, false) {
-        tree(i, position[0], position[1], n, size);
+        graphics::plant(city, at, i, position, n, size, false);
     }
 }
 
 fn lot_conifer(city: &City, at: [usize; 2], i: Iso, position: [f32; 2], n: u32) {
     if foliage_clear(city, at, i, position, 1., true) {
-        conifer(i, position[0], position[1], n);
+        graphics::plant(city, at, i, position, n, 1., true);
     }
 }
 
@@ -568,8 +644,21 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
                 lot_conifer(city, [x, y], i, [0.1, 0.], n);
             }
         }
-        Kind::Road | Kind::Avenue => road(city, t, i, x, y, n, v),
-        Kind::Rail => rail(city, i, x, y, v),
+        Kind::Road
+        | Kind::Avenue
+        | Kind::OneWay
+        | Kind::Ramp
+        | Kind::Highway
+        | Kind::Roundabout
+        | Kind::TunnelRoad => {
+            road(city, t, i, x, y, n, v);
+            graphics::road_detail(city, t, i, x, y, v);
+        }
+        Kind::Rail => {
+            rail(city, i, x, y, v);
+            graphics::rail_detail(city, y * usize::from(city.width) + x, i);
+        }
+        Kind::Subway => {}
         Kind::PowerLine => {
             let p = i.p(0., 0., 0.);
             let h = 13. * s;
@@ -621,7 +710,7 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
         }
         Kind::Industrial => {
             if t.level > 0 {
-                industry(i, t, n, v.tick);
+                industry(city, i, t, n, v.tick);
             }
         }
         Kind::Park => {
@@ -634,7 +723,19 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             draw_ellipse(p.x, p.y, 2.3 * s, 1.2 * s, 0., rgb(130, 206, 212));
             i.line(-0.35, 0.28, -0.15, 0.28, 1. * s, 1.3 * s, rgb(139, 107, 70));
         }
-        Kind::Wind => wind(i, v.tick, n),
+        Kind::Wind => wind(
+            i,
+            if v.calm {
+                0
+            } else {
+                v.tick.wrapping_mul(
+                    (u32::from(city.ext.weather.wind_x.unsigned_abs())
+                        + u32::from(city.ext.weather.wind_y.unsigned_abs()))
+                    .div_ceil(4),
+                )
+            },
+            n,
+        ),
         Kind::Coal => {
             i.diamond(rgb(139, 151, 137));
             i.block(-0.08, 0.1, 0.76, 0.64, 9. * s, rgb(164, 158, 128));
@@ -642,7 +743,7 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             for (u, h) in [(-0.24, 24.), (0.18, 20.)] {
                 i.block(u, -0.28, 0.14, 0.16, h * s, rgb(171, 158, 141));
                 i.raised(u, -0.28, 0.16, 0.18, h * s, s, rgb(93, 105, 105));
-                smoke(i, u, -0.28, (h + 2.) * s, v.tick, n, 0.8);
+                smoke(city, i, u, -0.28, (h + 2.) * s, v.tick, n, 0.8);
             }
         }
         Kind::Nuclear => {
@@ -660,7 +761,7 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
                     rgb(181, 196, 189),
                 );
                 draw_ellipse(p.x, p.y - 13. * s, 2.3 * s, 1.1 * s, 0., rgb(107, 138, 137));
-                smoke(i, u, z, 15. * s, v.tick, n, 0.55);
+                smoke(city, i, u, z, 15. * s, v.tick, n, 0.55);
             }
         }
         Kind::Pump => {
@@ -754,7 +855,7 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
                 rgb(79, 109, 110),
             );
         }
-        Kind::Airport => airport(i, v.tick, n),
+        Kind::Airport => airport(i, v.tick, n, !city.ext.enabled),
         Kind::Landfill => {
             i.diamond(rgb(149, 147, 111));
             for k in 0..5 {
@@ -771,12 +872,58 @@ fn object(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             }
             i.block(0.28, 0.24, 0.25, 0.35, 4. * s, rgb(210, 174, 86));
         }
+        Kind::Gas
+        | Kind::Solar
+        | Kind::Hydro
+        | Kind::Fusion
+        | Kind::WaterTower
+        | Kind::SewageOutlet
+        | Kind::Incinerator
+        | Kind::Recycling
+        | Kind::Prison
+        | Kind::FireHQ
+        | Kind::Clinic
+        | Kind::Cemetery
+        | Kind::Library
+        | Kind::BusStop
+        | Kind::SubwayStation
+        | Kind::FreightStation
+        | Kind::Airfield
+        | Kind::Marina
+        | Kind::MaintenanceDepot
+        | Kind::Playground
+        | Kind::Plaza
+        | Kind::BotanicalGarden
+        | Kind::DogPark
+        | Kind::SkatePark
+        | Kind::WaterfrontPark
+        | Kind::NatureReserve
+        | Kind::CityHall
+        | Kind::Market
+        | Kind::Fountain
+        | Kind::Monument
+        | Kind::ClockTower
+        | Kind::ConcertHall
+        | Kind::Observatory
+        | Kind::ScienceCenter
+        | Kind::Aquarium
+        | Kind::Zoo
+        | Kind::SportsCenter
+        | Kind::Beach
+        | Kind::Campground
+        | Kind::Fairground
+        | Kind::HeritageMuseum
+        | Kind::Arcology
+        | Kind::Spaceport
+        | Kind::WorldExpo
+        | Kind::Farm
+        | Kind::Hotel => graphics::facility(city, t, i, x, y, n, v),
     }
 }
 
 fn road(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
     let s = i.w / 12.;
-    let wide = t.kind == Kind::Avenue;
+    let wide = matches!(t.kind, Kind::Avenue | Kind::Highway | Kind::Ramp);
     let r = if wide { 0.43 } else { 0.32 };
     i.diamond(if t.terrain == Terrain::Water {
         rgb(108, 134, 129)
@@ -843,9 +990,9 @@ fn road(city: &City, t: &Tile, i: Iso, x: usize, y: usize, n: u32, v: View) {
             draw_line(p.x, p.y, p.x, p.y + 4. * s, 1.2 * s, rgb(87, 111, 109));
         }
     }
-    if t.traffic > 0 || n.is_multiple_of(5) {
+    if !city.ext.enabled && (t.traffic > 0 || n.is_multiple_of(5)) {
         let along_x = neighbour(city, x, y, 1, 0).is_some_and(|t| street(t.kind));
-        let t = ((v.tick + n % 140) % 140) as f32 / 140. - 0.5;
+        let t = (v.tick.wrapping_add(n % 140) % 140) as f32 / 140. - 0.5;
         let (u, z) = if along_x { (t, 0.13) } else { (-0.13, t) };
         let color = match n % 5 {
             0 => rgb(245, 209, 119),
@@ -911,7 +1058,7 @@ fn rail(city: &City, i: Iso, x: usize, y: usize, v: View) {
         rgb(146, 148, 126),
     );
     track_slats(i, along_x);
-    if (v.tick / 12 + x as u32 + y as u32) % 19 < 3 {
+    if !city.ext.enabled && (v.tick / 12 + x as u32 + y as u32) % 19 < 3 {
         i.block(
             0.,
             0.,
@@ -1056,7 +1203,7 @@ fn commercial(i: Iso, t: &Tile, n: u32) {
     }
 }
 
-fn industry(i: Iso, t: &Tile, n: u32, tick: u32) {
+fn industry(city: &City, i: Iso, t: &Tile, n: u32, tick: u32) {
     let s = i.w / 12.;
     let h = (5.5 + t.level as f32 * 1.5) * s;
     i.diamond(rgb(160, 166, 143));
@@ -1089,7 +1236,7 @@ fn industry(i: Iso, t: &Tile, n: u32, tick: u32) {
         let top = (11. + t.level as f32 * 2. + (n % 4) as f32) * s;
         i.raised(-0.27, -0.23, 0.13, 0.14, h, top - h, rgb(163, 139, 123));
         i.raised(-0.27, -0.23, 0.15, 0.16, top - s, s, rgb(99, 117, 118));
-        smoke(i, -0.27, -0.23, top + s, tick, n, 0.5);
+        smoke(city, i, -0.27, -0.23, top + s, tick, n, 0.5);
     } else {
         i.raised(0.25, -0.2, 0.2, 0.22, h, 2. * s, rgb(180, 199, 188));
         i.patch(0.25, -0.2, 0.11, 0.13, h + 2.2 * s, rgb(104, 139, 141));
@@ -1131,18 +1278,31 @@ fn service(i: Iso, n: u32, c: Color, roof: Color, style: u8) {
     }
 }
 
-fn smoke(i: Iso, u: f32, v: f32, h: f32, tick: u32, n: u32, strength: f32) {
+#[allow(clippy::too_many_arguments)]
+fn smoke(city: &City, i: Iso, u: f32, v: f32, h: f32, tick: u32, n: u32, strength: f32) {
     let s = i.w / 12.;
-    let phase = (tick + n % 100) % 100;
+    let phase = tick.wrapping_add(n % 100) % 100;
     for k in 0..3 {
         let age = ((phase + k * 33) % 100) as f32 / 100.;
         let p = i.p(u, v, h);
         let r = (1. + age * 3.) * s;
         draw_circle(
-            p.x + age * 4. * s,
-            p.y - age * 12. * s,
+            p.x + age
+                * (4.
+                    + (f32::from(city.ext.weather.wind_x) - f32::from(city.ext.weather.wind_y))
+                        * 0.2)
+                * s,
+            p.y - age
+                * (12.
+                    - (f32::from(city.ext.weather.wind_x) + f32::from(city.ext.weather.wind_y))
+                        * 0.05)
+                * s,
             r,
-            Color::new(0.73, 0.78, 0.71, (1. - age) * 0.22 * strength),
+            if strength <= 0.56 {
+                Color::new(0.86, 0.92, 0.86, (1. - age) * 0.22 * strength)
+            } else {
+                Color::new(0.66, 0.73, 0.69, (1. - age) * 0.22 * strength)
+            },
         );
     }
 }
@@ -1198,7 +1358,7 @@ fn stadium(i: Iso) {
     );
     i.line(-0.22, 0.2, 0.22, 0.2, 5.5 * s, 0.6 * s, rgb(211, 228, 187));
 }
-fn airport(i: Iso, tick: u32, n: u32) {
+fn airport(i: Iso, tick: u32, n: u32, decorative_aircraft: bool) {
     let s = i.w / 12.;
     i.diamond(rgb(152, 172, 146));
     i.patch(-0.05, 0., 0.37, 1., 0., rgb(93, 119, 117));
@@ -1216,7 +1376,10 @@ fn airport(i: Iso, tick: u32, n: u32) {
     i.block(0.3, -0.15, 0.3, 0.5, 5. * s, rgb(183, 207, 185));
     i.block(0.3, -0.3, 0.18, 0.16, 13. * s, rgb(160, 189, 176));
     i.raised(0.3, -0.3, 0.25, 0.23, 13. * s, 2. * s, rgb(111, 165, 173));
-    let t = ((tick + n % 180) % 180) as f32 / 180. - 0.5;
+    if !decorative_aircraft {
+        return;
+    }
+    let t = (tick.wrapping_add(n % 180) % 180) as f32 / 180. - 0.5;
     let p = i.p(-0.05, t, 2. * s);
     draw_line(
         p.x - 3. * s,
@@ -1236,71 +1399,71 @@ fn airport(i: Iso, tick: u32, n: u32) {
     );
 }
 
-fn overlay(t: &Tile, i: Iso, mode: u8) {
-    let bad = rgb(219, 116, 89);
-    let good = rgb(85, 214, 173);
-    let blue = rgb(88, 186, 232);
-    let gray = rgb(112, 139, 137);
-    let c = match mode {
-        1 => {
-            if t.powered {
-                rgb(241, 204, 92)
-            } else {
-                gray
-            }
-        }
-        2 => {
-            if t.watered {
-                blue
-            } else {
-                gray
-            }
-        }
-        3 => mix(good, bad, t.traffic as f32 / 100.),
-        4 => mix(good, rgb(186, 105, 157), t.pollution as f32 / 100.),
-        5 => mix(bad, good, t.land_value as f32 / 100.),
-        6 => mix(good, bad, t.crime as f32 / 100.),
-        7 => match t.kind {
-            Kind::Residential => rgb(94, 212, 132),
-            Kind::Commercial => rgb(90, 186, 235),
-            Kind::Industrial => rgb(240, 202, 91),
-            _ => gray,
-        },
-        8 => match t.kind {
-            Kind::Police
-            | Kind::Fire
-            | Kind::Hospital
-            | Kind::School
-            | Kind::University
-            | Kind::Park => rgb(138, 218, 217),
-            _ => {
-                if t.connected {
-                    good
-                } else {
-                    gray
-                }
-            }
-        },
-        _ => gray,
+/// Shared map swatches keep every floating legend identical to the tile shading.
+pub fn legend_colors(mode: u8) -> [Color; 5] {
+    let pale = rgb(230, 233, 220);
+    let (low, high) = match mode {
+        1 => (rgb(116, 134, 131), rgb(247, 217, 123)),
+        2 => (pale, rgb(36, 107, 158)),
+        3 | 11 | 12 => (pale, rgb(157, 69, 34)),
+        4 | 6 => (pale, rgb(127, 55, 125)),
+        9 => (rgb(177, 209, 159), rgb(107, 77, 58)),
+        10 => (pale, rgb(158, 101, 35)),
+        _ => (pale, rgb(37, 106, 131)),
     };
-    if t.terrain != Terrain::Water || t.kind != Kind::Empty {
-        i.diamond(alpha(c, 0.43));
-        if !matches!(
-            t.kind,
-            Kind::Empty | Kind::Road | Kind::Avenue | Kind::Pipe | Kind::PowerLine | Kind::Rail
-        ) {
+    [
+        low,
+        mix(low, high, 0.25),
+        mix(low, high, 0.5),
+        mix(low, high, 0.75),
+        high,
+    ]
+}
+
+pub fn zoning_color(kind: Kind) -> Color {
+    match kind {
+        Kind::Residential => rgb(101, 205, 135),
+        Kind::Commercial | Kind::Hotel => rgb(98, 184, 226),
+        Kind::Industrial => rgb(231, 192, 98),
+        Kind::Farm => rgb(178, 190, 111),
+        _ => rgb(132, 153, 145),
+    }
+}
+fn overlay(city: &City, index: usize, t: &Tile, i: Iso, view: View) {
+    let mode = view.overlay;
+    let sample = if mode == 8 {
+        city.service_coverage(index, view.service)
+    } else {
+        city.overlay_value(index, mode)
+    };
+    let Some(value) = sample else {
+        i.diamond(alpha(rgb(117, 139, 139), 0.25));
+        return;
+    };
+    // Normalized values cannot extrapolate the legend or become missing data.
+    let amount = value.min(100) as f32 / 100.;
+    let stops = legend_colors(mode);
+    let c = if mode == 7 {
+        zoning_color(t.kind)
+    } else {
+        mix(stops[0], stops[4], amount)
+    };
+    if t.terrain != Terrain::Water || t.kind != Kind::Empty || matches!(mode, 9 | 10) {
+        i.diamond(alpha(c, 0.42));
+        if t.kind.is_building() && (!t.kind.is_zone() || t.level > 0) {
             let p = i.p(0., 0., 2. * i.w / 12.);
-            draw_circle(p.x, p.y, 1.9 * i.w / 12., c);
+            draw_circle(p.x, p.y, 1.7 * i.w / 12., c);
         }
     }
 }
-fn fire(i: Iso, intensity: u8, tick: u32, n: u32) {
+
+fn fire(city: &City, i: Iso, intensity: u8, tick: u32, n: u32) {
     let s = i.w / 12.;
     let height = (7. + intensity.min(100) as f32 / 14.) * s;
     for k in 0..3 {
         let u = (k as f32 - 1.) * 0.15;
         let p = i.p(u, 0.07, 3. * s);
-        let flicker = ((tick + n + k * 7) % 19) as f32 / 19.;
+        let flicker = (tick.wrapping_add(n).wrapping_add(k * 7) % 19) as f32 / 19.;
         draw_triangle(
             vec2(p.x - 2. * s, p.y),
             vec2(p.x + 2. * s, p.y),
@@ -1317,5 +1480,43 @@ fn fire(i: Iso, intensity: u8, tick: u32, n: u32) {
             rgb(255, 220, 107),
         );
     }
-    smoke(i, 0., 0., height, tick, n, 1.5);
+    smoke(city, i, 0., 0., height, tick, n, 1.5);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use macroquad::camera::Camera;
+
+    #[test]
+    fn native_map_camera_preserves_top_left_logical_coordinates() {
+        for viewport in [(0, 0, 800, 450), (48, 27, 1280, 720)] {
+            let camera = map_camera(viewport);
+            let matrix = camera.matrix();
+            let top_left = matrix.transform_point3(vec3(0., 0., 0.));
+            let bottom_right = matrix.transform_point3(vec3(800., 450., 0.));
+            assert!((top_left - vec3(-1., 1., 0.)).length() < 0.00001);
+            assert!((bottom_right - vec3(1., -1., 0.)).length() < 0.00001);
+            assert_eq!(camera.viewport, Some(viewport));
+        }
+    }
+
+    #[test]
+    fn building_roof_projects_above_its_base_on_the_native_screen() {
+        let camera = map_camera((0, 0, 1280, 720));
+        let matrix = camera.matrix();
+        let building = Iso {
+            x: 286.,
+            y: 301.,
+            w: 18.,
+            h: 9.,
+        };
+        let base = building.p(0.2, -0.1, 0.);
+        let roof = building.p(0.2, -0.1, 42.);
+        let base_ndc = matrix.transform_point3(base.extend(0.));
+        let roof_ndc = matrix.transform_point3(roof.extend(0.));
+        assert!(roof.y < base.y);
+        assert!(roof_ndc.y > base_ndc.y);
+        assert!((roof_ndc.x - base_ndc.x).abs() < 0.00001);
+    }
 }

@@ -7,7 +7,7 @@ on:
         description: Cargo package version to build
         type: string
         required: true
-        default: '0.2.0'
+        default: '0.3.0'
       publish:
         description: Publish a new immutable release after every Windows gate passes
         type: boolean
@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: kevstermcgee/BlueEngineGames
-          ref: 824720b9679a8308bc6b0a475cfe16a7d5fd82bd
+          ref: bc268c56c29802f44b4bb58f3e3fdd80ec0ade20
           path: startup-verifier
           sparse-checkout: distribution/check_startup_windows.ps1
           sparse-checkout-cone-mode: false
@@ -142,7 +142,40 @@ jobs:
         run: |
           $stage = Join-Path $env:RUNNER_TEMP 'bluecity-startup-package'
           Copy-Item dist $stage -Recurse
-          ../startup-verifier/distribution/check_startup_windows.ps1 -Executable (Join-Path $stage 'bluecity.exe') -ExpectedTitle 'BlueCity' -OutputDirectory '.blue-check/startup' -OpenGLDirectory $env:BE2_CI_OPENGL_DIR -ToggleKey F
+          ../startup-verifier/distribution/check_startup_windows.ps1 -Executable (Join-Path $stage 'bluecity.exe') -ExpectedTitle 'BlueCity' -OutputDirectory '.blue-check/startup' -OpenGLDirectory $env:BE2_CI_OPENGL_DIR -ToggleKey F11
+
+      - name: Measure the Windows simulation and run century balance checks
+        shell: python
+        run: |
+          import json, os, pathlib, platform, subprocess
+          out = pathlib.Path('.blue-check')
+          subprocess.run(['cargo', 'build', '--locked', '--release', '--bin', 'bluecity-sim'], check=True)
+          executable = pathlib.Path(os.environ['CARGO_TARGET_DIR']) / 'release' / 'bluecity-sim.exe'
+          runs = [
+              ('performance-15000', ['--stress', '--days', '360']),
+              ('dense-century', ['--stress', '--years', '100']),
+              ('bot-century', ['--map', '0', '--bot', '--years', '100']),
+          ]
+          reports = {}
+          for name, args in runs:
+              report = out / (name + '.json')
+              with (out / (name + '.log')).open('w', encoding='utf-8') as log:
+                  subprocess.run([str(executable), *args, '--report', str(report)], stdout=log, stderr=subprocess.STDOUT, check=True)
+              reports[name] = json.loads(report.read_text())
+              print(name, json.dumps(reports[name]), flush=True)
+          performance = reports['performance-15000']
+          if (performance['width'], performance['height']) != (128, 128) or performance['initial_buildings'] < 15000 or performance['buildings'] < 15000 or not performance['target_met']:
+              raise SystemExit('The 15,000-building simulation exceeded the 4 ms daily target on this Windows runner')
+          for name in ('dense-century', 'bot-century'):
+              if reports[name]['days'] != 36000 or not reports[name]['snapshot_roundtrip'] or reports[name]['population'] < 500:
+                  raise SystemExit(name + ' did not retain a valid, inhabited city after 100 years')
+          if reports['bot-century']['bot']['bankrupt_months'] or reports['bot-century']['financial_defaults']:
+              raise SystemExit('The bot mayor did not maintain a solvent city')
+          (out / 'simulation-platform.json').write_text(json.dumps({
+              'platform': platform.platform(), 'processor': platform.processor(), 'logical_cpus': os.cpu_count(),
+              'source_revision': os.environ['GITHUB_SHA'], 'configuration': 'release, opt-level=3, thin LTO',
+              'performance': performance, 'physical_device_review': False,
+          }, indent=2) + '\n', encoding='utf-8')
 
       - name: Install Inno Setup 6
         shell: pwsh
@@ -192,6 +225,8 @@ jobs:
               'installer': artifact.name, 'installer_sha256': digest,
               'windows_package_smoke': True, 'installer_install_upgrade_uninstall': True,
               'text_only_studio_card': True,
+              'simulation_15000_buildings': json.loads(pathlib.Path('.blue-check/performance-15000.json').read_text()),
+              'dense_city_100_years': True, 'bot_mayor_100_years': True,
               'physical_device_review': False,
           }
           (release / 'release-metadata.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
@@ -237,8 +272,8 @@ jobs:
           pathlib.Path('release-notes.md').write_text(
               'BlueCity is an open-ended city management game built with BlueEngine.\n\n'
               'Download `bluecity-setup-windows-x64.exe` and run it to install on Windows x64.\n\n'
-              'Controls: WASD/arrows pan, click tools and map tiles to build, '
-              'K save, L load, M sound, N music, R restart, Escape pause. Roads and zones use two clicks.\n\n'
+              'Controls: WASD pan (arrows can be assigned in Settings), click tools and map tiles to build, '
+              'K save, L load, Escape Mayor menu, Space pause, F11 fullscreen; all shortcuts are rebindable in Settings. Roads and zones use the selected geometry.\n\n'
               'Windows game tests, executable resources, isolated package launch, and installer '
               'install/upgrade/uninstall checks passed. Physical devices have not been reviewed.\n\n'
               + 'Engine revision: `' + metadata['engine_revision'] + '`.\n\n'

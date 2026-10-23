@@ -1,5 +1,8 @@
 //! Floating, screen-resolution UI over the full-screen city.
 use super::*;
+use crate::city::Disaster;
+#[path = "panels.rs"]
+mod panels;
 use crate::layout::{self, Action};
 use macroquad::prelude as mq;
 use std::cell::RefCell;
@@ -77,9 +80,17 @@ enum Mark {
         max_width: f32,
     },
 }
-#[derive(Default)]
 struct Ui {
     marks: Vec<Mark>,
+    text_scale: f32,
+}
+impl Default for Ui {
+    fn default() -> Self {
+        Self {
+            marks: Vec::new(),
+            text_scale: 1.,
+        }
+    }
 }
 impl Ui {
     fn rect(&mut self, r: Rect, radius: f32, color: Color) {
@@ -114,6 +125,11 @@ impl Ui {
         align: Align,
         max_width: f32,
     ) {
+        let size = if size <= 14. {
+            size * self.text_scale
+        } else {
+            size
+        };
         self.marks.push(Mark::Label {
             x,
             y,
@@ -151,7 +167,7 @@ impl Ui {
             if active { BLUE } else { INK },
             active,
             Align::Center,
-            (r.w - 8) as f32,
+            (r.w - if r.w <= 40 { 2 } else { 4 }) as f32,
         );
     }
     fn metric(&mut self, y: f32, name: &str, value: impl Into<String>, color: Color) {
@@ -437,10 +453,10 @@ fn drawer(ui: &mut Ui, st: &State) {
             Align::Left,
             212.,
         );
-        ui.label(562., 217., "Map seed", 11.5, INK, true);
+        ui.label(562., 239., "Map seed", 11.5, INK, true);
         ui.fit(
             774.,
-            217.,
+            239.,
             "Type digits or use the keypad",
             9.,
             MUTED,
@@ -451,7 +467,7 @@ fn drawer(ui: &mut Ui, st: &State) {
         ui.fit(
             562.,
             342.,
-            "Same style + seed = same landscape",
+            "Same style + climate + seed = same landscape",
             10.,
             MUTED,
             false,
@@ -473,98 +489,126 @@ fn drawer(ui: &mut Ui, st: &State) {
                         MUTED,
                         false,
                     );
-                    ui.metric(198., "Residents", number(t.population), INK);
-                    ui.metric(218., "Jobs", number(t.jobs), INK);
-                    ui.metric(
-                        238.,
-                        "Road access",
-                        if t.connected { "Connected" } else { "Missing" },
-                        if t.connected { GREEN } else { RED },
+                    ui.fit(
+                        562.,
+                        195.,
+                        format!(
+                            "{} residents · {} jobs",
+                            number(t.population),
+                            number(t.jobs)
+                        ),
+                        12.,
+                        INK,
+                        true,
+                        Align::Left,
+                        212.,
                     );
-                    ui.metric(
-                        258.,
-                        "Electricity",
-                        if t.powered { "Online" } else { "Missing" },
-                        if t.powered { GREEN } else { AMBER },
+                    ui.fit(
+                        562.,
+                        215.,
+                        format!(
+                            "Road {} · Power {} · Water {}",
+                            if t.connected { "OK" } else { "—" },
+                            if t.powered { "OK" } else { "—" },
+                            if t.watered { "OK" } else { "—" }
+                        ),
+                        11.,
+                        INK,
+                        false,
+                        Align::Left,
+                        212.,
                     );
-                    ui.metric(
-                        278.,
-                        "Water",
-                        if t.watered { "Online" } else { "Missing" },
-                        if t.watered { GREEN } else { AMBER },
+                    let i = c.idx(x, y).unwrap();
+                    if let Some(person) = st.ui.citizen.and_then(|id| {
+                        c.civic
+                            .chirper
+                            .iter()
+                            .rev()
+                            .filter_map(|post| post.person.as_ref())
+                            .find(|p| p.id as usize == id)
+                    }) {
+                        ui.label(
+                            562.,
+                            239.,
+                            format!("Meet citizen {}", person.id),
+                            12.,
+                            BLUE,
+                            true,
+                        );
+                        ui.wrap(
+                            562.,
+                            259.,
+                            &format!(
+                                "Household {} · Education {} · Health {} · Income group {}",
+                                person.size, person.education, person.health, person.income_class
+                            ),
+                            32,
+                            11.,
+                            INK,
+                        );
+                    } else {
+                        ui.label(562., 239., "Next level needs", 12., BLUE, true);
+                        let needs = c.next_level_needs(i);
+                        let text = if needs.is_empty() {
+                            "All current requirements are met.".into()
+                        } else {
+                            needs.into_iter().take(3).collect::<Vec<_>>().join(". ")
+                        };
+                        ui.wrap(562., 259., &text, 33, 11., INK);
+                    }
+                    ui.fit(
+                        562.,
+                        325.,
+                        format!(
+                            "Land {} · Pollution {} · Traffic {}",
+                            t.land_value, t.pollution, t.traffic
+                        ),
+                        10.,
+                        MUTED,
+                        false,
+                        Align::Left,
+                        212.,
                     );
-                    ui.bar(299, "Land value", t.land_value as u32, GREEN);
-                    ui.bar(316, "Traffic", t.traffic as u32, AMBER);
-                    ui.bar(333, "Pollution", t.pollution as u32, RED);
-                    ui.bar(350, "Crime", t.crime as u32, RED);
                 }
             } else {
-                ui.label(562., 154., "Development demand", 12., INK, true);
+                ui.label(562., 154., "Development demand & reasons", 12., INK, true);
                 for (i, (name, color)) in
                     [("Homes", GREEN), ("Commerce", BLUE), ("Industry", AMBER)]
-                        .iter()
+                        .into_iter()
                         .enumerate()
                 {
-                    ui.bar(178 + i as i32 * 21, name, c.demand[i].max(0) as u32, *color);
+                    let y = 176 + i as i32 * 54;
+                    ui.bar(y, name, c.demand[i].max(0) as u32, color);
+                    ui.wrap(
+                        562.,
+                        (y + 16) as f32,
+                        &crate::demand::explanation(c, i),
+                        38,
+                        9.5,
+                        MUTED,
+                    );
                 }
-                ui.line(562., 230., 774., 230., RULE);
-                ui.metric(250., "Monthly income", money(c.income), GREEN);
-                ui.metric(271., "Running costs", money(c.expenses), AMBER);
                 ui.metric(
-                    292.,
+                    326.,
                     "Monthly balance",
                     money(c.income - c.expenses),
                     if c.income >= c.expenses { GREEN } else { RED },
                 );
-                ui.bar(321, "Health", c.health as u32, GREEN);
-                ui.bar(343, "Education", c.education as u32, BLUE);
             }
         }
         1 => {
-            ui.fit(
-                562.,
-                352.,
-                format!(
-                    "Power {}/{}  ·  Water {}/{}",
-                    c.power_demand, c.power_supply, c.water_demand, c.water_supply
-                ),
-                10.5,
-                MUTED,
-                false,
-                Align::Left,
-                212.,
-            );
-            ui.label(562., 375., "Population", 10.5, INK, true);
-            let history = &c.history;
-            let visible = history.len().min(40);
-            let max = history
-                .iter()
-                .rev()
-                .take(visible)
-                .map(|h| h.population)
-                .max()
-                .unwrap_or(1)
-                .max(1);
-            let samples: Vec<_> = history.iter().skip(history.len() - visible).collect();
-            for (index, pair) in samples.windows(2).enumerate() {
-                let x = 640. + index as f32 * 132. / visible.saturating_sub(1).max(1) as f32;
-                let x2 = 640. + (index + 1) as f32 * 132. / visible.saturating_sub(1).max(1) as f32;
-                ui.line(
-                    x,
-                    387. - pair[0].population as f32 / max as f32 * 24.,
-                    x2,
-                    387. - pair[1].population as f32 / max as f32 * 24.,
-                    BLUE,
+            if st.overlay == 8 {
+                ui.fit(
+                    562.,
+                    367.,
+                    format!("Coverage: {}", crate::city::SERVICE_LABELS[st.ui.service]),
+                    10.,
+                    INK,
+                    true,
+                    Align::Left,
+                    212.,
                 );
             }
-            ui.label(
-                562.,
-                390.,
-                format!("{} months", history.len()),
-                9.5,
-                MUTED,
-                false,
-            );
         }
         2 => {
             ui.label(562., 148., "Taxes", 12., INK, true);
@@ -626,7 +670,7 @@ fn drawer(ui: &mut Ui, st: &State) {
             ui.label(
                 562.,
                 328.,
-                "K save   ·   L load   ·   Esc pause",
+                "K save · L load · Space pause",
                 11.,
                 MUTED,
                 false,
@@ -646,7 +690,7 @@ fn drawer(ui: &mut Ui, st: &State) {
                 ui.label(
                     562.,
                     347.,
-                    "R restarts the starter town.",
+                    "Mayor's desk: scenarios and settings.",
                     11.,
                     MUTED,
                     false,
@@ -657,8 +701,69 @@ fn drawer(ui: &mut Ui, st: &State) {
 }
 impl draw::Game for BlueCity {
     fn device_input(&mut self, input: Intent) -> Intent {
-        // Text becomes the same public button intention as the on-screen keypad.
-        // Only the fixed-step simulation changes the seed or generates the world.
+        // Native edges become explicit public intentions; fixed steps own changes.
+        if let Some(index) = self.state.ui.rebind {
+            if let Some((code, _)) = crate::client::KEY_CODES
+                .iter()
+                .enumerate()
+                .find(|(_, (_, k))| mq::is_key_pressed(*k))
+            {
+                return Intent {
+                    pointer: Some(Point::new(-1100 - index as i32, code as i32)),
+                    action: true,
+                    x: 0,
+                    y: 0,
+                    ..input
+                };
+            }
+            return Intent {
+                x: 0,
+                y: 0,
+                ..input
+            };
+        }
+        if self.state.ui.window == Some(crate::ui_model::Window::Settings)
+            && self.state.ui.page == 0
+            && mq::is_mouse_button_down(mq::MouseButton::Left)
+            && input
+                .pointer
+                .is_some_and(|p| (0..3).any(|i| crate::ui_model::volume_slider(i).contains(p)))
+        {
+            return Intent {
+                action: true,
+                x: 0,
+                y: 0,
+                ..input
+            };
+        }
+        if !self.state.confirm_new {
+            for (i, key) in self.state.ui.preferences.keys.iter().enumerate() {
+                if matches!(
+                    crate::ui_model::Hotkey::ALL[i],
+                    crate::ui_model::Hotkey::PanLeft
+                        | crate::ui_model::Hotkey::PanRight
+                        | crate::ui_model::Hotkey::PanUp
+                        | crate::ui_model::Hotkey::PanDown
+                        | crate::ui_model::Hotkey::Save
+                        | crate::ui_model::Hotkey::Load
+                        | crate::ui_model::Hotkey::Fullscreen
+                ) {
+                    continue;
+                }
+                if crate::client::KEY_CODES
+                    .iter()
+                    .any(|(name, code)| name == key && mq::is_key_pressed(*code))
+                {
+                    return Intent {
+                        pointer: Some(Point::new(-2100 - i as i32, 0)),
+                        action: true,
+                        x: 0,
+                        y: 0,
+                        ..input
+                    };
+                }
+            }
+        }
         SEED_KEYS.with(|keys| {
             let mut keys = keys.borrow_mut();
             if !self.state.confirm_new {
@@ -713,6 +818,12 @@ impl draw::Game for BlueCity {
         })
     }
 
+    fn start_automatically() -> bool {
+        true
+    }
+    fn show_overlays() -> bool {
+        false
+    }
     fn show_hud() -> bool {
         false
     }
@@ -735,10 +846,25 @@ impl draw::Game for BlueCity {
                 hover: st.hover,
                 anchor: st.anchor,
                 tick: st.tick,
+                underground: st.ui.underground,
+                calm: st.ui.preferences.calm,
+                photo: st.ui.photo,
+                service: st.ui.service,
             },
             scene,
         );
-        let mut ui = Ui::default();
+        let mut ui = Ui {
+            text_scale: f32::from(st.ui.preferences.text_scale) / 100.,
+            ..Ui::default()
+        };
+        if st.ui.photo {
+            panels::draw(&mut ui, st);
+            scene.render_view(40, Rect::new(0, 0, 800, 450), move |viewport| {
+                ui.draw(viewport);
+                Ok(())
+            });
+            return;
+        }
         ui.panel(layout::TOP_BAR);
         ui.icon(24., 40., 0, BLUE);
         ui.label(47., 39., "BlueCity", 21., INK, true);
@@ -756,8 +882,13 @@ impl draw::Game for BlueCity {
         );
         ui.label(276., 26., "RESIDENTS", 8.5, MUTED, true);
         ui.label(276., 43., number(c.population), 16., INK, true);
-        ui.label(394., 26., "HAPPINESS", 8.5, MUTED, true);
-        ui.circle(398., 38., 2.5, if c.happiness > 55 { GREEN } else { AMBER });
+        ui.label(394., 26., "APPROVAL", 8.5, MUTED, true);
+        ui.circle(
+            398.,
+            38.,
+            2.5,
+            if c.civic.approval > 55 { GREEN } else { AMBER },
+        );
         ui.label(406., 43., format!("{}%", c.happiness), 16., INK, true);
         let months = [
             "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -771,6 +902,20 @@ impl draw::Game for BlueCity {
             INK,
             true,
         );
+        for (i, demand) in c.demand.iter().enumerate() {
+            let colors = [GREEN, BLUE, AMBER];
+            ui.rect(Rect::new(148 + i as i32 * 36, 48, 32, 4), 1., RULE);
+            ui.rect(
+                Rect::new(
+                    148 + i as i32 * 36,
+                    48,
+                    (*demand).clamp(0, 100) * 32 / 100,
+                    4,
+                ),
+                1.,
+                colors[i],
+            );
+        }
         ui.panel(layout::NAV);
         ui.panel(Rect::new(12, 408, 480, 30));
         for r in [
@@ -790,6 +935,7 @@ impl draw::Game for BlueCity {
         }
         for (r, action) in layout::controls(st) {
             match action {
+                Action::Extra(_) => {}
                 Action::Speed(i) => ui.button(
                     r,
                     ["II", "1×", "3×", "10×"][i as usize],
@@ -850,7 +996,14 @@ impl draw::Game for BlueCity {
                         ui.fit(
                             (r.x + r.w / 2) as f32,
                             r.y as f32 + 32.,
-                            money(tool.cost()),
+                            if let Tool::Build(k) = tool {
+                                c.civic
+                                    .can_build(k, c.population)
+                                    .err()
+                                    .unwrap_or_else(|| money(tool.cost()))
+                            } else {
+                                money(tool.cost())
+                            },
                             10.,
                             MUTED,
                             false,
@@ -867,7 +1020,7 @@ impl draw::Game for BlueCity {
                 Action::Center => ui.button(r, "Center", false, true),
                 Action::ClosePanel => ui.button(r, "×", false, false),
                 Action::CityOverview => ui.button(r, "Overview", false, true),
-                Action::Overlay(i) => ui.button(r, OVERLAYS[i as usize], st.overlay == i, false),
+                Action::Overlay(i) => ui.button(r, OVERLAYS[i as usize], st.overlay == i, true),
                 Action::Tax { delta, .. } | Action::Funding { delta, .. } => {
                     ui.button(r, if delta < 0 { "−" } else { "+" }, false, true)
                 }
@@ -887,6 +1040,7 @@ impl draw::Game for BlueCity {
                         Disaster::Earthquake => "EQ",
                         Disaster::Tornado => "Storm",
                         Disaster::Meltdown => "Atom",
+                        _ => "Alert",
                     },
                     false,
                     true,
@@ -928,7 +1082,7 @@ impl draw::Game for BlueCity {
                 Action::CancelNew => ui.button(r, "Keep this town", false, false),
             }
         }
-        if !st.palette_open {
+        if !st.palette_open && st.ui.window.is_none() && !st.ui.full_map {
             let (notice, color) = if st.notice_ticks > 0 {
                 (st.notice.clone(), INK)
             } else if st.tool != Tool::Inspect {
@@ -956,9 +1110,67 @@ impl draw::Game for BlueCity {
                 ui.fit(23., 391., notice, 11., color, false, Align::Left, 458.);
             }
         }
+        if let Some(at) = st.hover.filter(|_| st.tool != Tool::Inspect) {
+            let plan = crate::placement::plan(st, at);
+            let (w, h) = crate::projection::tile_size(st.zoom);
+            let color = if plan.refusal.is_none() {
+                Color::new(0.15, 0.58, 0.8, 0.9)
+            } else {
+                Color::new(0.9, 0.54, 0.14, 0.9)
+            };
+            for cell in plan.cells {
+                let p = crate::projection::project_tile(st, cell[0], cell[1]);
+                for (a, b) in [
+                    ([p.x, p.y - h], [p.x + w, p.y]),
+                    ([p.x + w, p.y], [p.x, p.y + h]),
+                    ([p.x, p.y + h], [p.x - w, p.y]),
+                    ([p.x - w, p.y], [p.x, p.y - h]),
+                ] {
+                    ui.line(a[0] as f32, a[1] as f32, b[0] as f32, b[1] as f32, color);
+                }
+            }
+        }
+        panels::draw(&mut ui, st);
         scene.render_view(40, Rect::new(0, 0, 800, 450), move |viewport| {
             ui.draw(viewport);
             Ok(())
         });
+    }
+}
+impl crate::client::ClientGame for BlueCity {
+    fn preferences(&self) -> &crate::ui_model::Preferences {
+        &self.state.ui.preferences
+    }
+    fn set_preferences(&mut self, prefs: crate::ui_model::Preferences) {
+        self.state.ui.preferences = prefs;
+    }
+    fn take_requests(&mut self) -> Vec<crate::client::ClientRequest> {
+        std::mem::take(&mut self.requests)
+    }
+    fn client_notice(&mut self, message: String) {
+        self.message(message);
+    }
+    fn draw_postcard<'a>(&'a self, scene: &mut Scene<'a>) {
+        let st = &self.state;
+        render::map(
+            &st.city,
+            render::View {
+                cam_x: st.cam_x,
+                cam_y: st.cam_y,
+                zoom: st.zoom,
+                overlay: 0,
+                hover: None,
+                anchor: None,
+                tick: st.tick,
+                underground: st.ui.underground,
+                calm: st.ui.preferences.calm,
+                photo: true,
+                service: st.ui.service,
+            },
+            scene,
+        );
+    }
+    fn editing_text(&self) -> bool {
+        self.state.confirm_new || self.state.ui.rebind.is_some()
     }
 }

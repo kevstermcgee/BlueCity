@@ -1,3 +1,25 @@
+# BlueCity 0.3.0 release candidate — not published
+
+BlueCity 0.3.0 is an unpublished native release candidate. The public BlueEngine Games launcher currently distributes the verified 0.2.0 release. Every item in the user's expansion checklist was treated as required regardless of its emoji. [FEATURES.md](FEATURES.md) records the feature evidence and limits.
+
+Before the final bot-maintenance patch, the recorded Linux shipping harness passed its project check and isolated packaged-game smoke. The nested default-feature `cargo test --locked` log contains **148 passing Rust tests** (8 library, 140 integration), including native-camera matrix checks, old-save migration, invalid-save atomicity, actual services/transit, one-way pointer routing, government and exact future continuation. Strict all-target Clippy and both audio-bank/content checks passed. The outer shipping wrapper reports zero tests because the test process is nested; the count comes from the actual project log.
+
+Recorded local receipts are `.blue-check/expansion/final-linux-shipping.log` and `final-clippy.log`; the project report/log is `.blue-check/20261023T135605006271Z-89u4d_5z/report.json` and `4.log`. The Linux package contains ten declared, hashed files. Its executable SHA256 is `12693cca1f0597ec475101ac02dd3b08353005baaba7b3ae080b772e069281d1`, matching the final native capture receipts. Windows results are still pending and are not inferred from Linux success.
+
+The world camera is upright and agrees with off-center picking: a native click at (496, 333) selects Clock Tower block (77, 69). Final Settings automation saved music 0/effects 50/ambience 100, text 150% and display 100%, with the polished large-text capture inspected. A starter-town milestone produced a clean automatic postcard without an F12 action. Receipts are under `.blue-check/expansion/upright-picking`, `release-settings` and `release-automatic-postcard`. Captures use software rendering and synthetic input with muted audio; physical devices and audible output remain unverified.
+
+The pre-maintenance-patch paid-rules bot built from a blank 128×128 River region for **100 years**: peak population 70,160; end population 9,425; treasury $6,460,673; zero bankruptcy months; exact 2,758,877-byte save round trip. A packaged-binary resume audit advanced it one more day and confirmed **zero financial defaults**, 9,379 residents, unchanged funds and another exact round trip. A separate dense 128² century run retained 208,235 residents, $75,073,282 and an exact 3,731,423-byte save. These are reliability/balance observations, not a human fun rating.
+
+The latest quiet 15,009-building run on the four-core Intel N97 recorded **2.659 ms mean, 4.280 ms p99 and 4.829 ms maximum per simulated day** over 360 days, zero defaults and exact 3,688,655-byte save; the state hash is `e29c094ebf193923`. **The strict 4 ms target fails locally.** The measurement includes normal, periodic and monthly steps, with setup reported separately. See `.blue-check/expansion/world-env-facts-profile-360.json`. The Windows workflow now enforces an independent 128²/15,000-building 360-day strict timing run plus both 100-year runs before it can publish an installer.
+
+A later mayor-only patch makes ruined maintenance depots stop blocking replacement and permits bounded paid clearing of unusable empty lots. The patch passed five focused mayor contract tests and strict focused Clippy. These older receipts do not certify the final planner.
+
+Open release gates: stable final shipping evidence and a fresh final-planner century, all declared Windows checks and installer lifecycle, strict Windows performance, independent artifact/hash inspection, immutable release and canonical launcher publication, then engine feedback submission. The current 54-game catalog must retain all 53 other games and BlueCity's prior release history. No 0.3.0 installer or launcher publication is claimed here.
+
+The sections below retain historical 0.2.0 and initial-development evidence; their old feature/test counts and browser artifacts do not certify the expansion. Browser packages are archival, not a current launcher product.
+
+---
+
 # BlueCity 0.2.0
 
 ## Full-screen map and seeded regions

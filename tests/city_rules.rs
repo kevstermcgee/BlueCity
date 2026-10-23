@@ -443,7 +443,15 @@ fn generated_regions_reproduce_the_entire_city_and_serialize_their_styles() {
     assert_eq!(MapStyle::default(), MapStyle::River);
     assert_eq!(
         MapStyle::ALL.map(MapStyle::label),
-        ["River", "Coast", "Islands", "Highlands"]
+        [
+            "River",
+            "Coast",
+            "Islands",
+            "Highlands",
+            "Lakes",
+            "Delta",
+            "Flatlands"
+        ]
     );
     for style in MapStyle::ALL {
         let encoded = serde_json::to_string(&style).unwrap();
