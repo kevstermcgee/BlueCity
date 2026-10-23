@@ -4,11 +4,11 @@ Build infrastructure. Grow neighborhoods. Shape a thriving city.
 
 BlueCity is an original BlueEngine city management game inspired by classic SimCity and Cities: Skylines. Roads, homes, workplaces and public services share a saved, deterministic simulation. The city fills the window, with readable, translucent overlays that open when you need them.
 
-The expansion described here is a release candidate in development. The launcher currently distributes version 0.2.0. Current checks and remaining release gates are recorded in [FEATURES.md](FEATURES.md) and [STATUS.md](STATUS.md).
+BlueCity **0.3.0** is published with a verified Windows x64 installer. The requested city-building systems are implemented at the model scope described below; [FEATURES.md](FEATURES.md) records behavior and limits, and [STATUS.md](STATUS.md) records release and launcher deployment evidence.
 
 ## Play
 
-Install the Windows edition through the [BlueEngine Games launcher](https://kevstermcgee.github.io/BlueEngineGames/games/bluecity/). The native launcher distributes a per-user Windows x64 installer. Saves and settings live in your user data directory.
+Download the [BlueCity 0.3.0 Windows installer](https://github.com/kevstermcgee/BlueEngineGames/releases/download/bluecity-v0.3.0/bluecity-setup-windows-x64.exe), or use the [BlueEngine Games launcher and player guide](https://kevstermcgee.github.io/BlueEngineGames/games/bluecity/). The installer is per-user; saves and settings live in your user data directory. Launcher rollout verification is recorded in [STATUS.md](STATUS.md).
 
 For a source build, check out the exact BlueEngine revision in `scripts/tooling.json` beside this repository as `../bluecity-engine`, then run:
 
@@ -58,7 +58,7 @@ Open a category along the bottom to see its paginated catalog. Tools close after
 - **Emergencies and story:** ten scheduled disaster types, warnings, relief and routed repair crews; twenty-five milestones, twelve reward requests, eight achievements and eight scenarios; advisors, hints, newspaper, Mayor's Cat, Chirper and citizen profiles; phased megaprojects and the Mayor's Notebook.
 - **Presentation:** original procedural isometric buildings and facilities, construction cranes, illuminated windows, climate trees, vehicles and emergency lights, weather and seasons, underground networks, original Riverlight music, city ambience and effects. Photo mode writes clean postcards; milestones can capture them automatically.
 
-The simulation uses occupied lots and households, with bounded samples of trips and vehicles. It does not create a permanent agent for every person. Roads and large facilities follow a grid. Neighboring cities are trade contracts. [FEATURES.md](FEATURES.md) states implementation limits and current evidence for each requested feature.
+The simulation uses occupied lots and households, with bounded samples of trips and vehicles. Roads and large facilities follow a grid, and neighboring cities are trade contracts. The complete requested feature list is implemented within that declared scope; this original game does not promise exact commercial-game parity. [FEATURES.md](FEATURES.md) distinguishes behavior tests, source review and presentation limits.
 
 ## Verify and balance
 
@@ -73,4 +73,6 @@ cargo run --locked --release --no-default-features --bin bluecity-sim -- --stres
 
 `bluecity-sim --help` also documents seeds, climates, scenarios, checkpoints and reports. The dense performance fixture is explicitly constructed test data; the bot builds through paid public rules. Reports separate elapsed run time from actual daily simulation samples and include mean, p99, maximum, building count, save size and snapshot round-trip results. Timing depends on hardware and load.
 
-Linux and Windows are declared native targets. Windows CI checks tests, formatting, Clippy, content, executable resources, the centered text-only BlueEngine Games opening, isolated package launch and installer install/upgrade/uninstall before publication. Software rendering does not certify physical audio or controller hardware. Artwork and the skyline icon are original; the retired rat branding is absent.
+The [published Windows run](https://github.com/kevstermcgee/BlueCity/actions/runs/39984257601) passed all **158 Rust tests**, both 100-year simulations, formatting/Clippy/content checks, isolated package launch, executable resources, the centered text-only studio opening and installer install/reinstall-upgrade/uninstall. The 128×128, 15,009-building, 360-day benchmark measured **2.057 ms mean, 3.298 ms p99 and 3.932 ms maximum** on that runner. Other hosts and longer stress runs can exceed 4 ms; [STATUS.md](STATUS.md) preserves those results and the disclosed release criterion. This is measured evidence, not a universal timing guarantee.
+
+Linux and Windows are declared native targets. Software capture does not certify audible playback or physical controller hardware. Artwork and the skyline icon are original; the retired rat branding is absent.
