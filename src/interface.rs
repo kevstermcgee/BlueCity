@@ -453,27 +453,6 @@ fn drawer(ui: &mut Ui, st: &State) {
             Align::Left,
             212.,
         );
-        ui.label(562., 239., "Map seed", 11.5, INK, true);
-        ui.fit(
-            774.,
-            239.,
-            "Type digits or use the keypad",
-            9.,
-            MUTED,
-            false,
-            Align::Right,
-            140.,
-        );
-        ui.fit(
-            562.,
-            342.,
-            "Same style + climate + seed = same landscape",
-            10.,
-            MUTED,
-            false,
-            Align::Left,
-            212.,
-        );
         return;
     }
     match st.tab {
@@ -1062,9 +1041,9 @@ impl draw::Game for BlueCity {
                         r.x as f32 + 10.,
                         r.y as f32 + 18.,
                         if st.draft_seed.is_empty() {
-                            "Enter a seed"
+                            "Seed: type digits".to_owned()
                         } else {
-                            &st.draft_seed
+                            format!("Seed: {}", st.draft_seed)
                         },
                         14.,
                         INK,
