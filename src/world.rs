@@ -425,16 +425,35 @@ impl WorldState {
             let Some(lot) = self.buildings.get_mut(cursor..cursor + count) else {
                 return false;
             };
-            if lot.iter().any(|b| b.tile != i as u32 || b.kind != t.kind) {
-                return false;
-            }
             let c = &self.cells[i];
+            let mut completed = 0;
+            for b in lot.iter() {
+                if b.tile != i as u32 || b.kind != t.kind {
+                    return false;
+                }
+                completed += usize::from(c.construction == 100 && b.progress == 100);
+            }
+            let (each, extra) = if completed > 0 {
+                (
+                    (t.population + t.jobs) / completed as u32,
+                    ((t.population + t.jobs) % completed as u32) as usize,
+                )
+            } else {
+                (0, 0)
+            };
+            let mut ordinal = 0;
             for b in lot.iter_mut() {
                 if c.construction < 100 {
                     b.progress = c.construction;
                 }
                 b.condition = c.condition;
-                b.occupants = 0;
+                b.occupants = if b.progress == 100 {
+                    let occupants = each + u32::from(ordinal < extra);
+                    ordinal += 1;
+                    occupants
+                } else {
+                    0
+                };
                 b.stage = if c.rubble {
                     BuildingStage::Rubble
                 } else if c.abandoned {
@@ -448,15 +467,6 @@ impl WorldState {
                 } else {
                     BuildingStage::Complete
                 };
-            }
-            let completed = lot.iter().filter(|b| b.progress == 100).count();
-            if completed > 0 {
-                for (ordinal, b) in lot.iter_mut().filter(|b| b.progress == 100).enumerate() {
-                    b.occupants = (t.population + t.jobs) / completed as u32
-                        + u32::from(
-                            ordinal < ((t.population + t.jobs) % completed as u32) as usize,
-                        );
-                }
             }
             cursor += count;
         }
@@ -589,7 +599,8 @@ impl WorldState {
         } else {
             city.funding[0].min(100)
         };
-        let old_elevation: Vec<_> = if self.day.is_multiple_of(30) && rain > 30 {
+        let monthly = self.day.is_multiple_of(30);
+        let old_elevation: Vec<_> = if monthly && rain > 30 {
             self.cells.iter().map(|c| c.elevation).collect()
         } else {
             Vec::new()
@@ -619,16 +630,21 @@ impl WorldState {
                     c.outage_days -= 1;
                     self.brownouts += 1;
                 }
+                let source = match t.kind {
+                    Kind::Coal => 85,
+                    Kind::Gas => 45,
+                    Kind::Industrial => 25 + t.level * 7,
+                    Kind::Incinerator => 45,
+                    Kind::Landfill => 40,
+                    Kind::SewageOutlet => 60,
+                    _ => 0,
+                };
                 let source =
-                    match t.kind {
-                        Kind::Coal => 85,
-                        Kind::Gas => 45,
-                        Kind::Industrial => 25 + t.level * 7,
-                        Kind::Incinerator => 45,
-                        Kind::Landfill => 40,
-                        Kind::SewageOutlet => 60,
-                        _ => 0,
-                    } * u8::from(c.operational() && t.connected && t.powered && t.fire == 0);
+                    if source != 0 && c.operational() && t.connected && t.powered && t.fire == 0 {
+                        source
+                    } else {
+                        0
+                    };
                 let inherited = upwind.map_or(0, |j| old_air[j] as u16 * 3 / 5);
                 c.air_pollution = ((source as u16 + inherited) / 2)
                     .saturating_sub(
@@ -651,13 +667,14 @@ impl WorldState {
                         c.fertility = c.fertility.saturating_add(1).min(100);
                     }
                 }
-                if t.kind.is_building() && c.construction < 100 && city.money >= 0 {
+                let building = t.kind.is_building();
+                if building && c.construction < 100 && city.money >= 0 {
                     c.construction = c
                         .construction
                         .saturating_add(8 + (hash(self.seed, self.day + i as u64) % 8) as u8)
                         .min(100);
                 }
-                if t.kind.is_building() {
+                if building {
                     if !t.connected || !t.powered || (!t.watered && t.kind != Kind::Pump) {
                         c.abandoned_days = c.abandoned_days.saturating_add(1);
                     } else {
@@ -671,7 +688,7 @@ impl WorldState {
                         city.tiles[i].jobs = 0;
                     }
                 }
-                if t.kind.is_road() && self.day.is_multiple_of(30) {
+                if monthly && t.kind.is_road() {
                     let wear = 1 + t.traffic / 25;
                     c.condition = if maintenance {
                         c.condition.saturating_add(8).min(100)
@@ -680,7 +697,7 @@ impl WorldState {
                             .saturating_sub(wear * (150 - city.funding[0].min(150)) / 100)
                     };
                 }
-                if self.day.is_multiple_of(30)
+                if monthly
                     && matches!(t.kind, Kind::Industrial | Kind::Gas)
                     && c.operational()
                     && t.connected
@@ -691,7 +708,7 @@ impl WorldState {
                     c.ore = c.ore.saturating_sub((t.jobs / 20).min(20) as u16);
                     c.oil = c.oil.saturating_sub((t.jobs / 30).min(12) as u16);
                 }
-                if t.kind.is_building() && c.age_days > 360 && self.day.is_multiple_of(30) {
+                if monthly && building && c.age_days > 360 {
                     c.condition = if maintenance {
                         c.condition.saturating_add(1).min(100)
                     } else {
@@ -699,7 +716,7 @@ impl WorldState {
                     };
                 }
                 if c.condition < 35
-                    && t.kind.is_building()
+                    && building
                     && hash(self.rng, self.day + i as u64).is_multiple_of(500)
                 {
                     c.outage_days = 3 + (r % 5) as u8;
@@ -717,9 +734,7 @@ impl WorldState {
                 c.heat = (temp.max(0) as u16 * 2 + t.level as u16 * 3 + c.air_pollution as u16 / 5)
                     .min(100) as u8;
 
-                c.radiation = c
-                    .radiation
-                    .saturating_sub(u8::from(self.day.is_multiple_of(30)));
+                c.radiation = c.radiation.saturating_sub(u8::from(monthly));
                 if rain > 75
                     && c.elevation < 6
                     && t.terrain != Terrain::Water
@@ -732,11 +747,7 @@ impl WorldState {
                 } else {
                     c.flood = c.flood.saturating_sub(5);
                 }
-                if self.day.is_multiple_of(30)
-                    && t.kind == Kind::Empty
-                    && rain > 30
-                    && c.elevation > 5
-                {
+                if monthly && t.kind == Kind::Empty && rain > 30 && c.elevation > 5 {
                     if let Some(j) = city.neighbors(i).min_by_key(|&j| old_elevation[j]) {
                         if c.elevation > old_elevation[j] + 8 {
                             erode.push((i, j));

@@ -2699,7 +2699,7 @@ fn pack(input: &[u8]) -> Vec<u8> {
         };
         let mut found = None;
         if let Some(k) = key {
-            if let Some(&p) = last.get(&k) {
+            if let Some(p) = last.insert(k, i) {
                 let dist = i - p;
                 if dist <= 65535 {
                     let mut len = 0;
@@ -2711,7 +2711,6 @@ fn pack(input: &[u8]) -> Vec<u8> {
                     }
                 }
             }
-            last.insert(k, i);
         }
         if let Some((dist, len)) = found {
             flush(&mut out, &mut literal);

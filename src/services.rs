@@ -231,6 +231,10 @@ struct RouteAddresses {
     route: Arc<[u32]>,
     walk: Arc<[u16]>,
     sorted: Arc<[u16]>,
+}
+#[derive(Clone, Debug)]
+struct RouteAddressesEntry {
+    data: Arc<RouteAddresses>,
     used: u64,
 }
 /// Pure derived memoization, never serialized or part of authoritative equality.
@@ -239,7 +243,8 @@ struct ServiceCache {
     key: u64,
     graph: Arc<StreetGraph>,
     trees: BTreeMap<(u8, bool), Arc<CachedTree>>,
-    route_addresses: BTreeMap<u64, Arc<RouteAddresses>>,
+    route_addresses: BTreeMap<u64, RouteAddressesEntry>,
+    route_ages: BTreeSet<(u64, u64)>,
     route_use: u64,
 }
 impl PartialEq for ServiceCache {
@@ -248,9 +253,55 @@ impl PartialEq for ServiceCache {
     }
 }
 impl Eq for ServiceCache {}
+/// A day's exact destination reservations. Pending arrivals are deliberately
+/// absent until they are retained, matching the order in which crews receive
+/// capacity in `arrivals`; this is derived scratch, never saved authority.
+#[derive(Default)]
+struct ResourceLoad {
+    reserved: [u32; 6],
+    used: u32,
+    processed_today: u32,
+}
+#[derive(Default)]
+struct ResourceLedger(BTreeMap<u32, ResourceLoad>);
+impl ResourceLedger {
+    fn new(state: &ServiceState) -> Self {
+        let mut ledger = Self::default();
+        for f in &state.facilities {
+            let load = ledger.0.entry(f.tile).or_default();
+            load.used = f.used;
+            load.processed_today = f.processed_today;
+        }
+        for p in &state.patients {
+            ledger.reserve(p.facility, ServicePurpose::Medical, p.count);
+        }
+        for m in &state.missions {
+            ledger.reserve(m.facility, m.purpose, m.load);
+        }
+        ledger
+    }
+    fn reserve(&mut self, facility: u32, purpose: ServicePurpose, count: u32) {
+        if count > 0 {
+            self.0.entry(facility).or_default().reserved[purpose as usize] += count;
+        }
+    }
+    fn available(&self, city: &City, facility: u32, purpose: ServicePurpose) -> u32 {
+        let i = facility as usize;
+        let load = self.0.get(&facility);
+        let used = match city.tiles.get(i).map(|t| t.kind) {
+            Some(Kind::Landfill | Kind::Cemetery) => load.map_or(0, |f| f.used),
+            Some(Kind::Incinerator | Kind::Recycling) => load.map_or(0, |f| f.processed_today),
+            _ => 0,
+        };
+        capacity(city, i)
+            .saturating_sub(used)
+            .saturating_sub(load.map_or(0, |f| f.reserved[purpose as usize]))
+    }
+}
 #[derive(Default)]
 struct Routing {
     memo: ServiceCache,
+    resources: ResourceLedger,
     touched: BTreeSet<(u8, bool)>,
     prepared: bool,
     marks: Vec<u16>,
@@ -350,6 +401,7 @@ impl Routing {
             self.memo.graph = Arc::new(graph);
             self.memo.trees.clear();
             self.memo.route_addresses.clear();
+            self.memo.route_ages.clear();
             self.touched.clear();
         }
         self.prepared = true;
@@ -397,16 +449,18 @@ impl Routing {
     }
     fn cached_addresses(&mut self, route: &[u32], sorted: bool) -> Option<Arc<[u16]>> {
         self.memo.route_use = self.memo.route_use.wrapping_add(1);
-        let entry = self.memo.route_addresses.get_mut(&Self::route_key(route))?;
-        if entry.route.as_ref() != route {
+        let key = Self::route_key(route);
+        let entry = self.memo.route_addresses.get_mut(&key)?;
+        if entry.data.route.as_ref() != route {
             return None;
         }
-        let entry = Arc::make_mut(entry);
+        self.memo.route_ages.remove(&(entry.used, key));
         entry.used = self.memo.route_use;
+        self.memo.route_ages.insert((entry.used, key));
         Some(if sorted {
-            entry.sorted.clone()
+            entry.data.sorted.clone()
         } else {
-            entry.walk.clone()
+            entry.data.walk.clone()
         })
     }
     fn addresses(&mut self, city: &City, route: &[u32]) -> Arc<[u16]> {
@@ -423,26 +477,32 @@ impl Routing {
         addresses.sort_unstable();
         let sorted: Arc<[u16]> = addresses.into();
         if self.memo.route_addresses.len() >= 512 {
-            if let Some((&oldest, _)) = self.memo.route_addresses.iter().min_by_key(|(_, v)| v.used)
-            {
+            if let Some(&(used, oldest)) = self.memo.route_ages.first() {
+                self.memo.route_ages.remove(&(used, oldest));
                 self.memo.route_addresses.remove(&oldest);
             }
         }
-        self.memo.route_addresses.insert(
-            Self::route_key(route),
-            Arc::new(RouteAddresses {
-                route: Arc::from(route),
-                walk,
-                sorted: sorted.clone(),
-                used: self.memo.route_use,
-            }),
-        );
+        let key = Self::route_key(route);
+        let used = self.memo.route_use;
+        if let Some(old) = self.memo.route_addresses.insert(
+            key,
+            RouteAddressesEntry {
+                data: Arc::new(RouteAddresses {
+                    route: Arc::from(route),
+                    walk,
+                    sorted: sorted.clone(),
+                }),
+                used,
+            },
+        ) {
+            self.memo.route_ages.remove(&(old.used, key));
+        }
+        self.memo.route_ages.insert((used, key));
         sorted
     }
     fn route(
         &mut self,
         city: &City,
-        state: &ServiceState,
         purpose: ServicePurpose,
         target: usize,
         reverse: bool,
@@ -464,7 +524,7 @@ impl Routing {
                         && (matches!(
                             purpose,
                             ServicePurpose::Fire | ServicePurpose::Police | ServicePurpose::Repair
-                        ) || state.available(city, i, purpose) > 0)
+                        ) || self.resources.available(city, i, purpose) > 0)
                 })
                 .collect();
             if self
@@ -555,6 +615,7 @@ impl ServiceState {
         }
         let mut routes = Routing {
             memo: std::mem::take(&mut self.cache),
+            resources: ResourceLedger::new(self),
             ..Default::default()
         };
         for purpose in [
@@ -565,7 +626,7 @@ impl ServiceState {
             ServicePurpose::Deathcare,
             ServicePurpose::Repair,
         ] {
-            let _ = routes.route(city, self, purpose, 0, false, None);
+            let _ = routes.route(city, purpose, 0, false, None);
             if matches!(
                 purpose,
                 ServicePurpose::Medical
@@ -573,7 +634,7 @@ impl ServiceState {
                     | ServicePurpose::Waste
                     | ServicePurpose::Deathcare
             ) {
-                let _ = routes.route(city, self, purpose, 0, true, None);
+                let _ = routes.route(city, purpose, 0, true, None);
             }
         }
         self.cache = routes.memo;
@@ -611,14 +672,7 @@ impl ServiceState {
             return Err("The treasury cannot cover this repair and already requested work.".into());
         }
         if Routing::default()
-            .route(
-                city,
-                self,
-                ServicePurpose::Repair,
-                tile as usize,
-                false,
-                None,
-            )
+            .route(city, ServicePurpose::Repair, tile as usize, false, None)
             .is_none()
         {
             return Err("A working maintenance depot needs a street route to this lot.".into());
@@ -665,34 +719,6 @@ impl ServiceState {
             ..Default::default()
         });
         Some(id)
-    }
-    fn reserved(&self, facility: u32, purpose: ServicePurpose) -> u32 {
-        self.missions
-            .iter()
-            .filter(|m| m.facility == facility && m.purpose == purpose)
-            .map(|m| m.load)
-            .sum::<u32>()
-            + if purpose == ServicePurpose::Medical {
-                self.patients
-                    .iter()
-                    .filter(|p| p.facility == facility)
-                    .map(|p| p.count)
-                    .sum()
-            } else {
-                0
-            }
-    }
-    fn available(&self, city: &City, facility: u32, purpose: ServicePurpose) -> u32 {
-        let i = facility as usize;
-        let load = self.facilities.iter().find(|f| f.tile == facility);
-        let used = match city.tiles.get(i).map(|t| t.kind) {
-            Some(Kind::Landfill | Kind::Cemetery) => load.map_or(0, |f| f.used),
-            Some(Kind::Incinerator | Kind::Recycling) => load.map_or(0, |f| f.processed_today),
-            _ => 0,
-        };
-        capacity(city, i)
-            .saturating_sub(used)
-            .saturating_sub(self.reserved(facility, purpose))
     }
     fn restore_cargo(&mut self, m: &ServiceMission) {
         if !m.cargo.is_empty() {
@@ -751,6 +777,7 @@ impl ServiceState {
     }
     fn arrivals(&mut self, city: &mut City, routes: &mut Routing) {
         let mut pending = std::mem::take(&mut self.missions);
+        routes.resources = ResourceLedger::new(self);
         pending.sort_by_key(|m| !m.returning);
         let vehicles: BTreeMap<_, _> = city
             .ext
@@ -784,6 +811,7 @@ impl ServiceState {
                 continue;
             }
             if vehicle.age_days < 90 || vehicle.tile != goal {
+                routes.resources.reserve(m.facility, m.purpose, m.load);
                 self.missions.push(m);
                 continue;
             }
@@ -799,7 +827,10 @@ impl ServiceState {
                         ServicePurpose::Medical => 16,
                         _ => 8,
                     };
-                    let limit = self.available(city, m.facility, m.purpose).min(size);
+                    let limit = routes
+                        .resources
+                        .available(city, m.facility, m.purpose)
+                        .min(size);
                     if limit < m.load {
                         self.restore_cargo(&m);
                         continue;
@@ -813,6 +844,9 @@ impl ServiceState {
                             m.cargo.push([m.target, m.load]);
                         }
                         for &[home, count] in &m.cargo {
+                            routes
+                                .resources
+                                .reserve(m.facility, ServicePurpose::Medical, count);
                             self.patients.push(Patient {
                                 home,
                                 facility: m.facility,
@@ -829,6 +863,9 @@ impl ServiceState {
                                 }
                                 _ => f.processed_today = f.processed_today.saturating_add(m.load),
                             }
+                            let load = routes.resources.0.entry(f.tile).or_default();
+                            load.used = f.used;
+                            load.processed_today = f.processed_today;
                             if m.purpose == ServicePurpose::Deathcare {
                                 self.burials += m.load as u64;
                             } else {
@@ -853,7 +890,7 @@ impl ServiceState {
                 }
                 ServicePurpose::Police => {
                     let room = if routes
-                        .route(city, self, ServicePurpose::Police, target, true, None)
+                        .route(city, ServicePurpose::Police, target, true, None)
                         .is_some()
                     {
                         self.prison_capacity.saturating_sub(self.prisoners)
@@ -912,12 +949,12 @@ impl ServiceState {
                 }
                 purpose => {
                     let Some((destination, route)) =
-                        routes.route(city, self, purpose, target, true, None)
+                        routes.route(city, purpose, target, true, None)
                     else {
                         continue;
                     };
                     m.facility = destination;
-                    let available = self.available(city, m.facility, purpose);
+                    let available = routes.resources.available(city, m.facility, purpose);
                     let size = match purpose {
                         ServicePurpose::Waste => 1024,
                         ServicePurpose::Medical => 16,
@@ -930,6 +967,7 @@ impl ServiceState {
                     if let Some(id) = self.spawn_vehicle(city, route, m.load) {
                         m.returning = true;
                         m.vehicle = id;
+                        routes.resources.reserve(m.facility, m.purpose, m.load);
                         self.missions.push(m);
                     } else {
                         self.restore_cargo(&m);
@@ -1054,7 +1092,8 @@ impl ServiceState {
             }
         }
     }
-    fn fires(&mut self, city: &mut City) {
+    fn fires(&mut self, city: &mut City) -> bool {
+        let mut routing_changed = false;
         let burning: Vec<_> = city
             .tiles
             .iter()
@@ -1093,6 +1132,11 @@ impl ServiceState {
                 intensity.saturating_add(3).min(100)
             };
             if city.tiles[i].fire >= 100 {
+                let routing_before = (
+                    city.tiles[i].kind,
+                    city.tiles[i].terrain,
+                    city.ext.cells.get(i).map(|c| c.orientation),
+                );
                 let population = city.tiles[i].population;
                 city.ext.people.migrants_out = city
                     .ext
@@ -1123,6 +1167,12 @@ impl ServiceState {
                     c.condition = 0;
                     c.tree_age = 0;
                 }
+                routing_changed |= routing_before
+                    != (
+                        city.tiles[i].kind,
+                        city.tiles[i].terrain,
+                        city.ext.cells.get(i).map(|c| c.orientation),
+                    );
             }
         }
         for i in ignite {
@@ -1140,8 +1190,9 @@ impl ServiceState {
                 }
             }
         }
+        routing_changed
     }
-    fn emergencies(&mut self, city: &mut City) {
+    fn emergencies(&mut self, city: &mut City) -> bool {
         let n = city.tiles.len();
         let mut previous = vec![0u64; n * 8];
         for event in std::mem::take(&mut self.emergencies) {
@@ -1246,10 +1297,14 @@ impl ServiceState {
                 .any(|v| v.kind == crate::civic::Hazard::Riot)
             {
                 let mut civic = std::mem::take(&mut city.civic);
-                let _ = civic.trigger_disaster_at(city, crate::civic::Hazard::Riot, e.tile);
+                let changed = civic
+                    .trigger_disaster_at(city, crate::civic::Hazard::Riot, e.tile)
+                    .is_ok();
                 city.civic = civic;
+                return changed;
             }
         }
+        false
     }
     fn dispatch(&mut self, city: &mut City, routes: &mut Routing) {
         self.failed_routes.retain(|f| f.until_day > self.day);
@@ -1272,11 +1327,12 @@ impl ServiceState {
                 claimed[tile as usize] |= 1 << p;
             }
         }
-        for e in self.emergencies.clone() {
+        for event in 0..self.emergencies.len() {
+            let (kind, tile) = (self.emergencies[event].kind, self.emergencies[event].tile);
             if dispatched >= 128 || self.missions.len() >= 256 {
                 break;
             }
-            let purpose = match e.kind {
+            let purpose = match kind {
                 EmergencyKind::Fire => ServicePurpose::Fire,
                 EmergencyKind::Medical | EmergencyKind::Outbreak => ServicePurpose::Medical,
                 EmergencyKind::Crime | EmergencyKind::Riot => ServicePurpose::Police,
@@ -1291,20 +1347,15 @@ impl ServiceState {
                 ServicePurpose::Fire => 64,
                 _ => 32,
             };
-            if counts[p] >= limit || claimed[e.tile as usize] & (1 << p) != 0 {
+            if counts[p] >= limit || claimed[tile as usize] & (1 << p) != 0 {
                 continue;
             }
-            let Some((facility, route)) = routes.route(
-                city,
-                self,
-                purpose,
-                e.tile as usize,
-                false,
-                Some(&fleet_room),
-            ) else {
+            let Some((facility, route)) =
+                routes.route(city, purpose, tile as usize, false, Some(&fleet_room))
+            else {
                 continue;
             };
-            let mut stops = vec![e.tile];
+            let mut stops = vec![tile];
             if matches!(
                 purpose,
                 ServicePurpose::Waste | ServicePurpose::Medical | ServicePurpose::Deathcare
@@ -1321,8 +1372,8 @@ impl ServiceState {
                         stops.push(j as u32);
                     }
                 }
-                if let Err(at) = stops.binary_search(&e.tile) {
-                    stops.insert(at, e.tile);
+                if let Err(at) = stops.binary_search(&tile) {
+                    stops.insert(at, tile);
                 }
             }
             for &tile in &stops {
@@ -1333,7 +1384,7 @@ impl ServiceState {
                     vehicle: id,
                     purpose,
                     facility,
-                    target: e.tile,
+                    target: tile,
                     started_day: self.day,
                     stops,
                     ..Default::default()
@@ -1446,10 +1497,12 @@ impl ServiceState {
         };
         self.arrivals(city, &mut routes);
         self.disease_and_waste(city);
-        self.fires(city);
-        routes.prepared = false;
+        let fire_changed = self.fires(city);
         self.totals(city);
-        self.emergencies(city);
+        let riot_changed = self.emergencies(city);
+        if fire_changed || riot_changed {
+            routes.prepared = false;
+        }
         self.dispatch(city, &mut routes);
         self.cache = routes.memo;
     }

@@ -1678,18 +1678,23 @@ impl City {
         let grids = self.utility_grid(water);
         let mut total_supply = 0u32;
         let mut total_demand = 0u32;
-        for mut members in grids {
+        for members in &grids {
             let mut supply = 0u32;
             let mut demand = 0u32;
             let mut outside = false;
-            for &i in &members {
+            for &i in members {
                 let t = self.tiles[i];
                 demand += Self::utility_demand(&t, water) * demand_percent / 100;
-                outside |= (i % self.width as usize == 0
-                    || i % self.width as usize + 1 == self.width as usize
-                    || i / self.width as usize == 0
-                    || i / self.width as usize + 1 == self.height as usize)
-                    && (t.kind.is_road() || matches!(t.kind, Kind::Rail | Kind::PowerLine));
+                if !water
+                    && !outside
+                    && (t.kind.is_road() || matches!(t.kind, Kind::Rail | Kind::PowerLine))
+                    && (i % self.width as usize == 0
+                        || i % self.width as usize + 1 == self.width as usize
+                        || i / self.width as usize == 0
+                        || i / self.width as usize + 1 == self.height as usize)
+                {
+                    outside = true;
+                }
                 if water {
                     if matches!(t.kind, Kind::Pump | Kind::WaterTower)
                         && t.connected
@@ -1716,7 +1721,7 @@ impl City {
             total_demand += demand;
             if supply == 0 || supply >= demand {
                 let served = supply > 0;
-                for i in members {
+                for &i in members {
                     if water {
                         self.tiles[i].watered = served;
                     } else {
@@ -1730,9 +1735,8 @@ impl City {
             let pivot = (self.tiles.len() - (self.month as usize * 37) % self.tiles.len())
                 % self.tiles.len();
             let cut = members.partition_point(|&i| i < pivot);
-            members.rotate_left(cut);
             let mut remaining = supply;
-            for i in members {
+            for &i in members[cut..].iter().chain(&members[..cut]) {
                 let need = Self::utility_demand(&self.tiles[i], water) * demand_percent / 100;
                 let served = supply > 0 && remaining >= need;
                 if served {
@@ -1744,6 +1748,11 @@ impl City {
                     self.tiles[i].powered = served;
                 }
             }
+        }
+        if self.ext.enabled {
+            // Return the borrowed-out component storage unchanged. Brownout
+            // rotation only changes iteration order, never the saved topology.
+            self.ext.utility_grids[usize::from(water)] = grids;
         }
         // A road's underground infrastructure feeds the neighboring lots.
         // Empty lots are deliberately not conductors: remote development still
@@ -1834,7 +1843,7 @@ impl City {
             .map(|i| u8::from(self.conducts(i, water)))
             .collect();
         if self.ext.enabled && self.ext.utility_masks[slot] == mask {
-            return self.ext.utility_grids[slot].clone();
+            return std::mem::take(&mut self.ext.utility_grids[slot]);
         }
         let mut visited = vec![false; self.tiles.len()];
         let mut grids = Vec::new();
@@ -1859,7 +1868,6 @@ impl City {
         }
         if self.ext.enabled {
             self.ext.utility_masks[slot] = mask;
-            self.ext.utility_grids[slot] = grids.clone();
         }
         grids
     }
@@ -2133,7 +2141,11 @@ impl City {
         } else {
             (workforce.saturating_sub(self.jobs) * 100 / workforce.max(1)).min(100) as u8
         };
-        let mut pollution = vec![0u16; self.tiles.len()];
+        let mut pollution = if self.ext.enabled {
+            Vec::new()
+        } else {
+            vec![0u16; self.tiles.len()]
+        };
         // Expanded worlds already transport pollution with saved wind/weather.
         if !self.ext.enabled {
             for i in 0..self.tiles.len() {
@@ -2234,72 +2246,95 @@ impl City {
             }
             traffic
         };
-        for i in 0..self.tiles.len() {
-            let t = self.tiles[i];
-            if !n.roads[i] {
-                traffic[i] = self.neighbors(i).map(|j| traffic[j]).max().unwrap_or(0) / 2;
-            }
-            let (trees, scenic_water) = if let Some(m) = &neighborhood {
-                (m.trees[i] as i32, m.scenic_water[i] as i32)
-            } else {
-                (
-                    self.neighbors(i)
-                        .filter(|&j| {
-                            self.tiles[j].terrain == Terrain::Forest
-                                && self.ext.cells.get(j).is_none_or(|c| c.tree_age >= 36)
-                        })
-                        .count() as i32
-                        * 3,
-                    if self.tiles[i].terrain == Terrain::Hill {
-                        8
-                    } else {
-                        0
-                    } + if self.near_water(i, 2) { 7 } else { 0 },
-                )
-            };
-            let p = (pollution[i] as i32
-                + self
+        let width = usize::from(self.width);
+        for row in (0..self.tiles.len()).step_by(width) {
+            for i in row..(row + width).min(self.tiles.len()) {
+                let t = self.tiles[i];
+                if !n.roads[i] {
+                    let x = i - row;
+                    let mut adjacent = 0;
+                    if x > 0 {
+                        adjacent = adjacent.max(traffic[i - 1]);
+                    }
+                    if x + 1 < width {
+                        adjacent = adjacent.max(traffic[i + 1]);
+                    }
+                    if row > 0 {
+                        adjacent = adjacent.max(traffic[i - width]);
+                    }
+                    if i + width < traffic.len() {
+                        adjacent = adjacent.max(traffic[i + width]);
+                    }
+                    traffic[i] = adjacent / 2;
+                }
+                let (trees, scenic_water) = if let Some(m) = &neighborhood {
+                    (m.trees[i] as i32, m.scenic_water[i] as i32)
+                } else {
+                    (
+                        self.neighbors(i)
+                            .filter(|&j| {
+                                self.tiles[j].terrain == Terrain::Forest
+                                    && self.ext.cells.get(j).is_none_or(|c| c.tree_age >= 36)
+                            })
+                            .count() as i32
+                            * 3,
+                        if self.tiles[i].terrain == Terrain::Hill {
+                            8
+                        } else {
+                            0
+                        } + if self.near_water(i, 2) { 7 } else { 0 },
+                    )
+                };
+                let p = (if self.ext.enabled {
+                    0
+                } else {
+                    pollution[i] as i32
+                } + self
                     .ext
                     .cells
                     .get(i)
                     .map_or(0, |c| c.air_pollution as i32 + c.radiation as i32 / 2)
-                + self.garbage as i32 / 3
-                + traffic[i] as i32 / 9
-                - trees)
-                .clamp(0, 100);
-            let crime = (12
-                + self.unemployment as i32 / 2
-                + t.level as i32 * 5
-                + (self.taxes[0] as i32 - 9).max(0) * 2
-                - n.police[i] as i32 * 45 / 100
-                - n.school[i] as i32 / 10)
-                .clamp(0, 100);
-            let value = (38
-                + n.park[i] as i32 / 3
-                + n.school[i] as i32 / 8
-                + n.health[i] as i32 / 10
-                + scenic_water
-                + trees
-                - p * 2 / 3
-                - crime / 3
-                - traffic[i] as i32 / 6
-                - self.garbage as i32 / 5)
-                .clamp(0, 100);
-            self.tiles[i].pollution = p as u8;
-            self.tiles[i].crime = crime as u8;
-            self.tiles[i].traffic = traffic[i];
-            self.tiles[i].land_value = value as u8;
-            if t.population > 0 {
-                let health = (65 + n.health[i] as i32 * 30 / 100
-                    - p / 3
-                    - sewage_penalty as i32
-                    - if t.watered { 0 } else { 35 }
+                    + self.garbage as i32 / 3
+                    + traffic[i] as i32 / 9
+                    - trees)
+                    .clamp(0, 100);
+                let crime = (12
+                    + self.unemployment as i32 / 2
+                    + t.level as i32 * 5
+                    + (self.taxes[0] as i32 - 9).max(0) * 2
+                    - n.police[i] as i32 * 45 / 100
+                    - n.school[i] as i32 / 10)
+                    .clamp(0, 100);
+                let value = (38
+                    + n.park[i] as i32 / 3
+                    + n.school[i] as i32 / 8
+                    + n.health[i] as i32 / 10
+                    + scenic_water
+                    + trees
+                    - p * 2 / 3
+                    - crime / 3
+                    - traffic[i] as i32 / 6
                     - self.garbage as i32 / 5)
                     .clamp(0, 100);
-                let education =
-                    (n.school[i] as u32 * 65 / 100 + n.university[i] as u32 * 35 / 100).min(100);
-                let happy =
-                    (35 + value / 2 + health / 6 + education as i32 / 10 + n.park[i] as i32 / 12
+                self.tiles[i].pollution = p as u8;
+                self.tiles[i].crime = crime as u8;
+                self.tiles[i].traffic = traffic[i];
+                self.tiles[i].land_value = value as u8;
+                if t.population > 0 {
+                    let health = (65 + n.health[i] as i32 * 30 / 100
+                        - p / 3
+                        - sewage_penalty as i32
+                        - if t.watered { 0 } else { 35 }
+                        - self.garbage as i32 / 5)
+                        .clamp(0, 100);
+                    let education = (n.school[i] as u32 * 65 / 100
+                        + n.university[i] as u32 * 35 / 100)
+                        .min(100);
+                    let happy = (35
+                        + value / 2
+                        + health / 6
+                        + education as i32 / 10
+                        + n.park[i] as i32 / 12
                         - self.unemployment as i32 / 4
                         - (self.taxes[0] as i32 - 9) * 3
                         - if t.powered { 0 } else { 25 }
@@ -2307,10 +2342,11 @@ impl City {
                         - if t.connected { 0 } else { 20 }
                         - if t.fire == 0 { 0 } else { 35 })
                     .clamp(0, 100);
-                health_total += health as u64 * t.population as u64;
-                school_total += education as u64 * t.population as u64;
-                happy_total += happy as u64 * t.population as u64;
-                transit_total += n.transit[i] as u64 * t.population as u64 / 2;
+                    health_total += health as u64 * t.population as u64;
+                    school_total += education as u64 * t.population as u64;
+                    happy_total += happy as u64 * t.population as u64;
+                    transit_total += n.transit[i] as u64 * t.population as u64 / 2;
+                }
             }
         }
         if self.population > 0 {
@@ -2443,12 +2479,12 @@ impl City {
     pub fn advance_month(&mut self) {
         self.month = self.month.saturating_add(1);
         let old_population = self.population;
-        let n = if self.ext.enabled && self.ext.coverage.len() == self.tiles.len() {
-            self.cached_networks()
+        let legacy_fire = if self.ext.enabled && self.ext.coverage.len() == self.tiles.len() {
+            None
         } else {
             let n = self.infrastructure();
             self.update_environment(&n);
-            n
+            Some(n.fire)
         };
         let max_level = if self.population >= 35000 {
             5
@@ -2573,7 +2609,7 @@ impl City {
             }
         }
         if !self.ext.enabled {
-            self.process_fires(&n.fire);
+            self.process_fires(legacy_fire.as_ref().unwrap());
         }
         self.refresh_statistics();
         self.money =

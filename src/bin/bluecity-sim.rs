@@ -137,6 +137,15 @@ fn run() -> Result<(), String> {
         samples.clone_from(&mayor.day_samples_ns);
     }
     let mean = samples.iter().map(|&n| u128::from(n)).sum::<u128>() / u128::from(days);
+    // Analyze the already collected samples after timing ends, so reports show
+    // which actual steps caused spikes without instrumenting simulation work.
+    let mut slowest: Vec<_> = samples.iter().copied().enumerate().collect();
+    slowest.sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let slowest: Vec<_> = slowest
+        .into_iter()
+        .take(10)
+        .map(|(step, ns)| serde_json::json!({"measured_step":step+1,"microseconds":ns/1000}))
+        .collect();
     samples.sort_unstable();
     let p99 = samples
         .get(samples.len().saturating_sub(1) * 99 / 100)
@@ -151,6 +160,8 @@ fn run() -> Result<(), String> {
         return Err("Snapshot continuation mismatch".into());
     }
     let report = serde_json::json!({"seed":seed,"days":days,"setup_us":setup_us,"width":game.state.city.width,"height":game.state.city.height,"initial_buildings":initial_buildings,"buildings":game.state.city.ext.buildings.len(),"population":game.state.city.population,"money":game.state.city.money,"elapsed_ms":elapsed.as_millis(),"mean_day_us":mean/1000,"p99_day_us":p99/1000,"max_day_us":max/1000,"target_day_us":4000,"target_met":max<4000000,"save_bytes":bytes.len(),"hash":format!("{:016x}",game.state_hash()),"bot":bot,"snapshot_roundtrip":true,"financial_defaults":game.state.city.civic.events[bluecity::content::CivicEvent::DeclaredBankruptcy as usize]});
+    let mut report = report;
+    report["slowest_steps"] = serde_json::json!(slowest);
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
     if let Some(path) = value(&args, "--report") {
         std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap())

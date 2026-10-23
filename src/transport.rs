@@ -594,6 +594,9 @@ impl TransportState {
         self.served_trips = 0;
         self.unserved_trips = 0;
         let mut distance_sum = 0u64;
+        // Hold cache indices until a vehicle is actually spawned. Most commute
+        // paths only contribute flow; cloning every path needlessly copies the
+        // same geometry even when the visual fleet is already full.
         let mut origins = vec![];
         self.ridership = 0;
         self.fare_revenue = 0;
@@ -629,6 +632,7 @@ impl TransportState {
             let origin = self.nearest_road[i] as usize;
             let mut dest = employer[i];
             let mut route = Vec::new();
+            let mut cached_path = None;
             if dest != u32::MAX {
                 let at = cache_index[i];
                 let current = if at == usize::MAX {
@@ -643,7 +647,7 @@ impl TransportState {
                         && !(day > r.planned_day && (day + u64::from(r.home)).is_multiple_of(7))
                 });
                 if valid {
-                    route = current.unwrap().path.clone();
+                    cached_path = Some(at);
                 } else {
                     let goal = self
                         .nearest_road
@@ -662,7 +666,7 @@ impl TransportState {
                     let record = CommuteRoute {
                         home: i as u32,
                         employer: dest,
-                        path: route.clone(),
+                        path: route,
                         planned_day: day,
                         topology,
                     };
@@ -672,6 +676,8 @@ impl TransportState {
                     } else {
                         self.commute_routes[at] = record;
                     }
+                    cached_path = Some(cache_index[i]);
+                    route = Vec::new();
                 }
             } else if distances[origin] != u32::MAX {
                 dest = destination[origin];
@@ -688,7 +694,10 @@ impl TransportState {
             if dest == u32::MAX {
                 continue;
             }
-            let road_available = !route.is_empty();
+            let path = cached_path
+                .map(|at| self.commute_routes[at].path.as_slice())
+                .unwrap_or(&route);
+            let road_available = !path.is_empty();
             let trips = t.population / 3;
             self.trips += trips;
             let mut transit = 0u32;
@@ -747,7 +756,7 @@ impl TransportState {
                         + city.distance(dest as usize, alighting as usize))
                         as u64;
             }
-            let walking_trips = if road_available && route.len() <= 5 {
+            let walking_trips = if road_available && path.len() <= 5 {
                 trips.saturating_sub(transit) / 4
             } else {
                 0
@@ -759,12 +768,12 @@ impl TransportState {
             };
             self.served_trips += transit + walking_trips + driving;
             self.unserved_trips += trips - transit - walking_trips - driving;
-            distance_sum += route.len() as u64 * (driving + walking_trips) as u64;
-            for &at in &route {
+            distance_sum += path.len() as u64 * (driving + walking_trips) as u64;
+            for &at in path {
                 self.route_flow[at as usize] += driving;
             }
-            if driving > 0 && route.len() > 1 && origins.len() < 768 {
-                origins.push((i, route));
+            if driving > 0 && path.len() > 1 && origins.len() < 768 {
+                origins.push((cached_path, route));
             }
         }
         for line in &self.lines {
@@ -903,7 +912,8 @@ impl TransportState {
             v.progress = progress as u16;
         }
         if self.vehicles.len() < 1024 {
-            for (_, route) in origins.into_iter().step_by(3).take(64) {
+            for (cached_path, route) in origins.into_iter().step_by(3).take(64) {
+                let route = cached_path.map_or(route, |at| self.commute_routes[at].path.clone());
                 self.next_id += 1;
                 self.vehicles.push(Vehicle {
                     id: self.next_id,

@@ -297,6 +297,37 @@ fn removing_a_road_mid_response_cancels_care_without_losing_patients() {
 }
 
 #[test]
+fn a_street_burning_during_arrivals_rebuilds_routes_before_new_dispatches() {
+    let mut warm = town();
+    set(&mut warm, 10, 9, Kind::Clinic);
+    let first = warm.idx(12, 9).unwrap();
+    warm.ext.services.sick[first] = 8;
+    day(&mut warm);
+    assert_eq!(warm.ext.services.dispatches, 1);
+    let mut cold: City = serde_json::from_slice(&serde_json::to_vec(&warm).unwrap()).unwrap();
+    for c in [&mut warm, &mut cold] {
+        let remote = set(c, 25, 9, Kind::Residential);
+        c.tiles[remote].population = 120;
+        c.tiles[remote].level = 2;
+        c.population += 120;
+        c.ext.services.sick[remote] = 20;
+        let bridge = c.idx(11, 10).unwrap();
+        c.tiles[bridge].fire = 99;
+        day(c);
+        assert_eq!(c.tiles[bridge].kind, Kind::Empty);
+        assert_eq!(
+            c.ext.services.dispatches, 1,
+            "the response already in transit must not dispatch a second ambulance across the street that burned down later that day"
+        );
+        assert!(c.ext.services.sick[remote] >= 20);
+    }
+    assert_eq!(
+        warm, cold,
+        "a restored street memo must produce the same arrivals and post-fire dispatch decisions"
+    );
+}
+
+#[test]
 fn an_interrupted_return_journey_restores_each_collected_patient_or_load() {
     for kind in [Kind::Clinic, Kind::Landfill, Kind::Cemetery] {
         let mut c = town();
