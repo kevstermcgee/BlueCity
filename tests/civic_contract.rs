@@ -918,6 +918,60 @@ fn january_rewind_restores_world_progress_and_rejects_repeated_use() {
 }
 
 #[test]
+fn reused_january_buffers_match_fresh_capture_and_exact_rewind_future() {
+    let mut city = City::new(7, true);
+    let mut government = CivicState::new(44);
+    government.save_january(&city);
+    let mut retained_world_buffers = 0;
+    for days in [7, 31, 2] {
+        let previous = government.january.as_ref().unwrap();
+        let saved_world = previous.world.clone();
+        let cells_buffer = previous.world.cells.as_ptr();
+        let cells_capacity = previous.world.cells.capacity();
+        let tiles_buffer = previous.tiles.as_ptr();
+        for _ in 0..days {
+            city.advance_day();
+        }
+        assert_eq!(government.january.as_ref().unwrap().world, saved_world);
+        government.day = city.ext.day as u32;
+        government.rewind_used = true;
+        let mut fresh = government.clone();
+        fresh.january = None;
+        fresh.save_january(&city);
+        let ordinary_world_copy = city.ext.clone();
+        government.save_january(&city);
+        let reused = government.january.as_ref().unwrap();
+        if cells_capacity >= city.ext.cells.len() && !city.ext.cells.is_empty() {
+            assert_eq!(reused.world.cells.as_ptr(), cells_buffer);
+            retained_world_buffers += 1;
+        }
+        assert_eq!(reused.tiles.as_ptr(), tiles_buffer);
+        assert_eq!(reused.world, ordinary_world_copy);
+        assert_eq!(government, fresh);
+        assert_eq!(
+            serde_json::to_vec(&government).unwrap(),
+            serde_json::to_vec(&fresh).unwrap(),
+            "reusing checkpoint storage must preserve canonical archive bytes"
+        );
+        government.validate(city.tiles.len()).unwrap();
+        let mut restored = city.clone();
+        let mut control = city.clone();
+        restored.money -= 123;
+        control.money -= 123;
+        let mut rewind = government.clone();
+        rewind.rewind_january(&mut restored).unwrap();
+        fresh.rewind_january(&mut control).unwrap();
+        assert_eq!(restored, control);
+        for _ in 0..20 {
+            restored.advance_day();
+            control.advance_day();
+        }
+        assert_eq!(restored, control);
+    }
+    assert!(retained_world_buffers >= 2);
+}
+
+#[test]
 fn metrics_do_not_hide_congestion_in_empty_land_and_history_has_sixteen_graphs() {
     let mut city = City::new(7, false);
     for t in &mut city.tiles {

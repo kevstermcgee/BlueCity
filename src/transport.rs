@@ -1150,3 +1150,140 @@ fn road_route_with(
     }
     Some(path)
 }
+
+impl CommuteRoute {
+    fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            home,
+            employer,
+            path,
+            planned_day,
+            topology,
+        } = source;
+        self.home = *home;
+        self.employer = *employer;
+        self.path.clone_from(path);
+        self.planned_day = *planned_day;
+        self.topology = *topology;
+    }
+}
+impl Vehicle {
+    fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            id,
+            kind,
+            tile,
+            next_tile,
+            progress,
+            passengers,
+            line_id,
+            heading,
+            route,
+            leg,
+            age_days,
+        } = source;
+        self.id = *id;
+        self.kind = *kind;
+        self.tile = *tile;
+        self.next_tile = *next_tile;
+        self.progress = *progress;
+        self.passengers = *passengers;
+        self.line_id = *line_id;
+        self.heading = *heading;
+        self.route.clone_from(route);
+        self.leg = *leg;
+        self.age_days = *age_days;
+    }
+}
+impl TransitLine {
+    fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            reverse_route,
+            running,
+            route,
+            id,
+            name,
+            mode,
+            stops,
+            color,
+            fare,
+            enabled,
+            ridership,
+        } = source;
+        self.reverse_route.clone_from(reverse_route);
+        self.running = *running;
+        self.route.clone_from(route);
+        self.id = *id;
+        self.name.clone_from(name);
+        self.mode = *mode;
+        self.stops.clone_from(stops);
+        self.color = *color;
+        self.fare = *fare;
+        self.enabled = *enabled;
+        self.ridership = *ridership;
+    }
+}
+impl TransportState {
+    /// Copy a complete owned checkpoint while reusing existing buffers.
+    /// This changes allocation behavior only; every state field is copied.
+    pub fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            access_memo,
+            air_revenue_balance,
+            served_trips,
+            unserved_trips,
+            commute_routes,
+            lines,
+            vehicles,
+            next_id,
+            next_line,
+            trips,
+            completed_trips,
+            average_commute,
+            congestion,
+            ridership,
+            fare_revenue,
+            fare_balance,
+            freight,
+            road_wear,
+            road_access,
+            nearest_road,
+            route_flow,
+            jams,
+        } = source;
+        self.access_memo.clone_from(access_memo);
+        self.air_revenue_balance = *air_revenue_balance;
+        self.served_trips = *served_trips;
+        self.unserved_trips = *unserved_trips;
+        crate::world::checkpoint_vec_copy(
+            &mut self.commute_routes,
+            commute_routes,
+            CommuteRoute::checkpoint_copy_from,
+        );
+        crate::world::checkpoint_vec_copy(
+            &mut self.lines,
+            lines,
+            TransitLine::checkpoint_copy_from,
+        );
+        crate::world::checkpoint_vec_copy(
+            &mut self.vehicles,
+            vehicles,
+            Vehicle::checkpoint_copy_from,
+        );
+        self.next_id = *next_id;
+        self.next_line = *next_line;
+        self.trips = *trips;
+        self.completed_trips = *completed_trips;
+        self.average_commute = *average_commute;
+        self.congestion = *congestion;
+        self.ridership = *ridership;
+        self.fare_revenue = *fare_revenue;
+        self.fare_balance = *fare_balance;
+        self.freight = *freight;
+        self.road_wear = *road_wear;
+        self.road_access.clone_from(road_access);
+        self.nearest_road.clone_from(nearest_road);
+        self.route_flow.clone_from(route_flow);
+        self.jams.clone_from(jams);
+    }
+}

@@ -1012,6 +1012,118 @@ impl WorldState {
     }
 }
 
+/// Reuse existing nested allocation owners; new elements use ordinary Clone.
+pub(crate) fn checkpoint_vec_copy<T: Clone>(
+    target: &mut Vec<T>,
+    source: &[T],
+    copy: impl Fn(&mut T, &T),
+) {
+    for (target, source) in target.iter_mut().zip(source) {
+        copy(target, source);
+    }
+    target.truncate(source.len());
+    if target.len() < source.len() {
+        target.extend_from_slice(&source[target.len()..]);
+    }
+}
+
+impl NeighborContract {
+    fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            region,
+            enabled,
+            power,
+            goods,
+            unit_price,
+            tariff,
+            last_power,
+            last_goods,
+            monthly_cost,
+        } = source;
+        self.region.clone_from(region);
+        self.enabled = *enabled;
+        self.power = *power;
+        self.goods = *goods;
+        self.unit_price = *unit_price;
+        self.tariff = *tariff;
+        self.last_power = *last_power;
+        self.last_goods = *last_goods;
+        self.monthly_cost = *monthly_cost;
+    }
+}
+impl WorldState {
+    /// Copy a complete owned checkpoint while reusing existing buffers.
+    /// This changes allocation behavior only; every state field is copied.
+    pub fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            infrastructure_memo,
+            infrastructure_stamp,
+            utility_masks,
+            utility_grids,
+            services,
+            neighbors,
+            enabled,
+            seed,
+            style,
+            climate,
+            day,
+            minute_of_day,
+            season,
+            weather,
+            cells,
+            buildings,
+            next_building,
+            people,
+            transport,
+            coverage,
+            power_reserve,
+            water_reserve,
+            sewage_overflow,
+            brownouts,
+            breakdowns,
+            tourism,
+            trade_income,
+            operating_cost,
+            maintenance,
+            rng,
+        } = source;
+        self.infrastructure_memo.clone_from(infrastructure_memo);
+        self.infrastructure_stamp = *infrastructure_stamp;
+        self.utility_masks.clone_from(utility_masks);
+        self.utility_grids.clone_from(utility_grids);
+        self.services.checkpoint_copy_from(services);
+        checkpoint_vec_copy(
+            &mut self.neighbors,
+            neighbors,
+            NeighborContract::checkpoint_copy_from,
+        );
+        self.enabled = *enabled;
+        self.seed = *seed;
+        self.style = *style;
+        self.climate = *climate;
+        self.day = *day;
+        self.minute_of_day = *minute_of_day;
+        self.season = *season;
+        self.weather.clone_from(weather);
+        self.cells.clone_from(cells);
+        self.buildings.clone_from(buildings);
+        self.next_building = *next_building;
+        self.people.checkpoint_copy_from(people);
+        self.transport.checkpoint_copy_from(transport);
+        self.coverage.clone_from(coverage);
+        self.power_reserve = *power_reserve;
+        self.water_reserve = *water_reserve;
+        self.sewage_overflow = *sewage_overflow;
+        self.brownouts = *brownouts;
+        self.breakdowns = *breakdowns;
+        self.tourism = *tourism;
+        self.trade_income = *trade_income;
+        self.operating_cost = *operating_cost;
+        self.maintenance = *maintenance;
+        self.rng = *rng;
+    }
+}
+
 #[cfg(test)]
 mod building_sync_tests {
     use super::*;

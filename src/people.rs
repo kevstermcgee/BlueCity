@@ -469,3 +469,76 @@ impl PeopleState {
         }
     }
 }
+
+impl PeopleState {
+    /// Copy a complete owned checkpoint while reusing existing buffers.
+    /// This changes allocation behavior only; every state field is copied.
+    pub fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            jobs_by_education,
+            employed_by_education,
+            filled_jobs_by_education,
+            workforce,
+            employed,
+            overqualified,
+            employment,
+            employment_stamp,
+            households,
+            population,
+            children,
+            adults,
+            seniors,
+            births,
+            deaths,
+            migrants_in,
+            migrants_out,
+            unemployment,
+            happiness_factors,
+            education_levels,
+            income_classes,
+            goods_demand,
+            goods_produced,
+            goods_imported,
+            goods_exported,
+            goods_consumed,
+            goods_unused,
+            goods_shortfall,
+            average_commute,
+            birth_accumulator,
+            death_accumulator,
+            next_id,
+        } = source;
+        self.jobs_by_education = *jobs_by_education;
+        self.employed_by_education = *employed_by_education;
+        self.filled_jobs_by_education = *filled_jobs_by_education;
+        self.workforce = *workforce;
+        self.employed = *employed;
+        self.overqualified = *overqualified;
+        self.employment.clone_from(employment);
+        self.employment_stamp = *employment_stamp;
+        self.households.clone_from(households);
+        self.population = *population;
+        self.children = *children;
+        self.adults = *adults;
+        self.seniors = *seniors;
+        self.births = *births;
+        self.deaths = *deaths;
+        self.migrants_in = *migrants_in;
+        self.migrants_out = *migrants_out;
+        self.unemployment = *unemployment;
+        self.happiness_factors = *happiness_factors;
+        self.education_levels = *education_levels;
+        self.income_classes = *income_classes;
+        self.goods_demand = *goods_demand;
+        self.goods_produced = *goods_produced;
+        self.goods_imported = *goods_imported;
+        self.goods_exported = *goods_exported;
+        self.goods_consumed = *goods_consumed;
+        self.goods_unused = *goods_unused;
+        self.goods_shortfall = *goods_shortfall;
+        self.average_commute = *average_commute;
+        self.birth_accumulator = *birth_accumulator;
+        self.death_accumulator = *death_accumulator;
+        self.next_id = *next_id;
+    }
+}

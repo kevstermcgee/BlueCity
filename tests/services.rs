@@ -551,6 +551,97 @@ fn in_flight_services_survive_a_city_save_and_continue_identically() {
 }
 
 #[test]
+fn reused_service_checkpoints_preserve_bytes_buffers_and_future_deliveries() {
+    let mut a = town();
+    for (x, kind) in [
+        (8, Kind::MaintenanceDepot),
+        (10, Kind::Clinic),
+        (14, Kind::Landfill),
+        (16, Kind::Cemetery),
+    ] {
+        set(&mut a, x, 9, kind);
+    }
+    let library = set(&mut a, 18, 9, Kind::Library);
+    let previous = a.tiles[library];
+    a.tiles[library].kind = Kind::Empty;
+    a.ext.cells[library].rubble = true;
+    a.ext.cells[library].condition = 0;
+    a.civic.damage.push(DamageRecord {
+        tile: library as u32,
+        previous,
+        repair_cost: 500,
+        day: 0,
+    });
+    queue(&mut a, library as u32).unwrap();
+    days(&mut a, 2);
+    assert_eq!(a.ext.services.completed_repairs, 1);
+    assert!(!a.ext.services.notices.is_empty());
+    // Repair rebuilds actual utility coverage. Restore this service fixture's
+    // supplied utilities before starting the independent collection journeys.
+    for tile in &mut a.tiles {
+        tile.connected = true;
+        tile.powered = true;
+        tile.watered = true;
+    }
+    let home = a.idx(12, 9).unwrap();
+    a.ext.services.sick[home] = 20;
+    a.ext.services.waste[home] = 300;
+    a.ext.services.dead[home] = 8;
+    days(&mut a, 2);
+    let mut copied = bluecity::services::ServiceState::default();
+    copied.checkpoint_copy_from(&a.ext.services);
+    let loaded = copied
+        .missions
+        .iter()
+        .position(|m| !m.cargo.is_empty())
+        .unwrap();
+    let stocks = (
+        copied.waste.as_ptr(),
+        copied.sick.as_ptr(),
+        copied.dead.as_ptr(),
+    );
+    let crew_buffers = (
+        copied.missions[loaded].cargo.as_ptr(),
+        copied.missions[loaded].stops.as_ptr(),
+    );
+    let notice = copied.notices[0].message.as_ptr();
+    copied.checkpoint_copy_from(&a.ext.services);
+    assert_eq!(
+        stocks,
+        (
+            copied.waste.as_ptr(),
+            copied.sick.as_ptr(),
+            copied.dead.as_ptr()
+        )
+    );
+    assert_eq!(
+        crew_buffers,
+        (
+            copied.missions[loaded].cargo.as_ptr(),
+            copied.missions[loaded].stops.as_ptr()
+        )
+    );
+    assert_eq!(notice, copied.notices[0].message.as_ptr());
+    let mut b = a.clone();
+    b.ext.services = bluecity::services::ServiceState::default();
+    b.ext.services.checkpoint_copy_from(&a.ext.services);
+    for _ in 0..15 {
+        assert_eq!(copied, a.ext.services);
+        assert_eq!(
+            serde_json::to_vec(&copied).unwrap(),
+            serde_json::to_vec(&a.ext.services).unwrap()
+        );
+        day(&mut a);
+        day(&mut b);
+        assert_eq!(
+            a, b,
+            "copied in-flight loads must arrive, recover and charge identically"
+        );
+        copied.checkpoint_copy_from(&a.ext.services);
+    }
+}
+
+#[test]
 fn warm_service_routes_match_cold_restores_after_water_and_one_way_edits() {
     let mut a = town();
     let old = a.idx(12, 9).unwrap();

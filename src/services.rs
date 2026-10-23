@@ -607,6 +607,100 @@ fn fleet(city: &City, i: usize) -> usize {
 }
 
 impl ServiceState {
+    /// Copy a checkpoint exactly while retaining existing stock and crew buffers.
+    pub fn checkpoint_copy_from(&mut self, source: &Self) {
+        let Self {
+            day,
+            beds,
+            occupied_beds,
+            ill,
+            deaths_waiting,
+            prisoners,
+            prison_capacity,
+            landfill_used,
+            landfill_capacity,
+            waste_collected,
+            waste_generated,
+            waste_processed,
+            recycled,
+            burials,
+            recovered,
+            overflow,
+            dispatches,
+            emergencies,
+            missions,
+            patients,
+            detentions,
+            facilities,
+            failed_routes,
+            waste,
+            sick,
+            dead,
+            repair_requests,
+            completed_repairs,
+            cancelled_repairs,
+            notices,
+            cache,
+        } = source;
+        self.day = *day;
+        self.beds = *beds;
+        self.occupied_beds = *occupied_beds;
+        self.ill = *ill;
+        self.deaths_waiting = *deaths_waiting;
+        self.prisoners = *prisoners;
+        self.prison_capacity = *prison_capacity;
+        self.landfill_used = *landfill_used;
+        self.landfill_capacity = *landfill_capacity;
+        self.waste_collected = *waste_collected;
+        self.waste_generated = *waste_generated;
+        self.waste_processed = *waste_processed;
+        self.recycled = *recycled;
+        self.burials = *burials;
+        self.recovered = *recovered;
+        self.overflow = *overflow;
+        self.dispatches = *dispatches;
+        self.completed_repairs = *completed_repairs;
+        self.cancelled_repairs = *cancelled_repairs;
+        self.emergencies.clone_from(emergencies);
+        self.patients.clone_from(patients);
+        self.detentions.clone_from(detentions);
+        self.facilities.clone_from(facilities);
+        self.failed_routes.clone_from(failed_routes);
+        self.waste.clone_from(waste);
+        self.sick.clone_from(sick);
+        self.dead.clone_from(dead);
+        self.repair_requests.clone_from(repair_requests);
+        crate::world::checkpoint_vec_copy(&mut self.missions, missions, |target, source| {
+            let ServiceMission {
+                vehicle,
+                purpose,
+                facility,
+                target: destination,
+                returning,
+                load,
+                started_day,
+                cargo,
+                stops,
+            } = source;
+            target.vehicle = *vehicle;
+            target.purpose = *purpose;
+            target.facility = *facility;
+            target.target = *destination;
+            target.returning = *returning;
+            target.load = *load;
+            target.started_day = *started_day;
+            target.cargo.clone_from(cargo);
+            target.stops.clone_from(stops);
+        });
+        crate::world::checkpoint_vec_copy(&mut self.notices, notices, |target, source| {
+            let ServiceNotice { tile, day, message } = source;
+            target.tile = *tile;
+            target.day = *day;
+            target.message.clone_from(message);
+        });
+        self.cache.clone_from(cache);
+    }
+
     /// Prepare derived street geometry and every current provider catchment while
     /// loading a city. Authoritative stocks, vehicles and missions are unchanged.
     pub fn warm_routes(&mut self, city: &City) {

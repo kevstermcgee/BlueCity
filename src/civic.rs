@@ -2377,7 +2377,24 @@ impl CivicState {
                 return;
             }
         };
-        let world = city.ext.clone();
+        // Encoding is complete: the prior checkpoint can now supply its
+        // buffers without weakening the failure path above.
+        let (mut world, mut tiles, mut history, mut messages) = previous
+            .map(|snapshot| {
+                let JanuarySnapshot {
+                    world,
+                    tiles,
+                    history,
+                    messages,
+                    ..
+                } = *snapshot;
+                (world, tiles, history, messages)
+            })
+            .unwrap_or_default();
+        world.checkpoint_copy_from(&city.ext);
+        tiles.clone_from(&city.tiles);
+        history.clone_from(&city.history);
+        messages.clone_from(&city.messages);
         let values = [
             city.money,
             city.month as i64,
@@ -2408,13 +2425,13 @@ impl CivicState {
             year: city.month / 12,
             width: city.width,
             height: city.height,
-            tiles: city.tiles.clone(),
+            tiles,
             values,
             taxes: city.taxes,
             funding: city.funding,
             policies: city.policies,
-            history: city.history.clone(),
-            messages: city.messages.clone(),
+            history,
+            messages,
             seed: city.seed,
             world,
             government,
